@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+qdrant-client
+sentence-transformers
+langchain-community
+langchain-text-splitters
+openai
+python-dotenv
