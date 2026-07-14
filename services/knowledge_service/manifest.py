@@ -29,9 +29,17 @@ def is_unchanged(manifest: dict, source_name: str, content_hash: str) -> bool:
     return entry is not None and entry.get("hash") == content_hash
 
 
-def record_success(manifest: dict, source_name: str, content_hash: str, output_md: str, image_count: int) -> None:
+def record_success(
+    manifest: dict,
+    source_name: str,
+    content_hash: str,
+    output_md: str,
+    image_count: int,
+    **metadata,
+) -> None:
     manifest[source_name] = {
         "hash": content_hash,
         "output_md": output_md,
         "image_count": image_count,
+        **metadata,
     }

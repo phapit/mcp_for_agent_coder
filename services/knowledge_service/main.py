@@ -14,6 +14,7 @@ import openai
 import excel_ingest
 import manifest as manifest_store
 import vision
+from notebooklm_service import NotebookLMError, NotebookLMService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
 EXCEL_SOURCE_DIR = os.getenv("EXCEL_SOURCE_DIR", "/app/project_data/excel_sources")
 EXCEL_OUTPUT_DIR = os.getenv("EXCEL_OUTPUT_DIR", "/app/project_data/docs/imported")
+NOTEBOOKLM_OUTPUT_DIR = os.getenv("NOTEBOOKLM_OUTPUT_DIR", EXCEL_OUTPUT_DIR)
 
 # --- Initialize Global Objects ---
 try:
@@ -65,6 +67,11 @@ class AnswerQuery(BaseModel):
 class IngestExcelRequest(BaseModel):
     use_online_model: int = 0  # 0 = Ollama (local), 1 = OpenAI gpt-4o-mini (online) cho bước refine
     force: bool = False
+
+
+class IngestSpreadsheetRequest(BaseModel):
+    spreadsheet_url: str
+    output_name: str = "spreadsheet.md"
 
 
 def _ensure_collection(vector_size: int):
@@ -266,3 +273,40 @@ async def ingest_excel_upload(use_online_model: int = 0, file: UploadFile = File
     manifest_store.save_manifest(EXCEL_OUTPUT_DIR, manifest)
 
     return {"file": file.filename, **result}
+
+
+@app.post("/ingest-spreadsheet")
+def ingest_spreadsheet(request: IngestSpreadsheetRequest):
+    """Add a Google Spreadsheet URL to the fixed NotebookLM notebook and export Markdown."""
+    if "/" in request.output_name or "\\" in request.output_name or not request.output_name.endswith(".md"):
+        raise HTTPException(status_code=422, detail="output_name must be a plain .md filename.")
+
+    service = NotebookLMService(output_dir=NOTEBOOKLM_OUTPUT_DIR)
+    try:
+        result = service.process_spreadsheet(request.spreadsheet_url, request.output_name)
+    except NotebookLMError as exc:
+        logger.error("NotebookLM spreadsheet ingestion failed: %s", exc)
+        status_code = 503 if "not configured" in str(exc) else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    manifest = manifest_store.load_manifest(NOTEBOOKLM_OUTPUT_DIR)
+    manifest_store.record_success(
+        manifest,
+        request.spreadsheet_url,
+        manifest_store.compute_hash(request.spreadsheet_url.encode("utf-8")),
+        result.output_md,
+        0,
+        notebook_id=service.notebook_id,
+        source_id=result.source_id,
+        artifact_id=result.artifact_id,
+        spreadsheet_url=request.spreadsheet_url,
+    )
+    manifest_store.save_manifest(NOTEBOOKLM_OUTPUT_DIR, manifest)
+
+    return {
+        "spreadsheet_url": request.spreadsheet_url,
+        "notebook_id": service.notebook_id,
+        "source_id": result.source_id,
+        "artifact_id": result.artifact_id,
+        "output_md": result.output_md,
+    }

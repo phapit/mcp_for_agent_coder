@@ -1,5 +1,5 @@
-version: '3.8'
-
+# version: '3.8'
+#
 services:
   qdrant:
     image: qdrant/qdrant:v1.9.2
@@ -37,6 +37,10 @@ services:
       - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4o}
       - ANTHROPIC_VISION_MODEL=${ANTHROPIC_VISION_MODEL:-claude-sonnet-4-5}
       - EXCEL_SOURCE_DIR=/app/project_data/excel_sources
+      - NOTEBOOKLM_NOTEBOOK_ID=${NOTEBOOKLM_NOTEBOOK_ID}
+      - NOTEBOOKLM_OUTPUT_DIR=/app/project_data/docs/imported
+    env_file:
+      - .env
     volumes:
       - .:/app/project_data
     depends_on:
@@ -51,6 +55,8 @@ services:
     container_name: agent_service
     ports:
       - "8001:8001"
+    env_file:
+      - .env
     volumes:
       - .:/app/project_data
       - /var/run/docker.sock:/var/run/docker.sock # Nếu cần tương tác với Docker

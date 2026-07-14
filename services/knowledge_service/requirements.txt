@@ -11,3 +11,4 @@ Pillow
 python-multipart
 python-dotenv
 pytest
+notebooklm-py
