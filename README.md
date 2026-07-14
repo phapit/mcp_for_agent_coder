@@ -23,6 +23,7 @@ NotebookLM rất mạnh ở việc:
 # AI Agent (Codex, Claude, Gravity,...):
 
 "AI Senior Developer" có thể tự đọc tài liệu dự án, tự phân tích bug, tự tạo PR và dần hiểu hệ thống tốt hơn theo thời gian, tôi có thể đề xuất một kiến trúc hoàn chỉnh sử dụng Codex + Obsidian + Qdrant + MCP + GitHub Actions theo hướng gần giống các hệ thống AI engineering agent hiện đại đang được nhiều công ty áp dụng.
+```
 
                    ┌─────────────┐
                    │  Obsidian   │
@@ -64,3 +65,4 @@ NotebookLM rất mạnh ở việc:
         └──────────────┬─────────────────┘
                        ▼
                 Git Repository
+```
