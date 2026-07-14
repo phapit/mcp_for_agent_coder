@@ -19,6 +19,9 @@ QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "project_docs")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434/v1")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 DOCS_GLOB = os.getenv("DOCS_GLOB", "/app/project_data/docs/**/*.md")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
@@ -28,11 +31,13 @@ try:
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
     qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
     openai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+    ollama_client = openai.OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
 except Exception as e:
     logger.error(f"Failed to initialize models or clients on startup: {e}", exc_info=True)
     embeddings = None
     qdrant_client = None
     openai_client = None
+    ollama_client = None
 
 app = FastAPI(title="Knowledge Curator Service")
 
@@ -47,6 +52,7 @@ class SearchQuery(BaseModel):
 class AnswerQuery(BaseModel):
     question: str
     limit: int = 3
+    use_online_model: int = 0  # 0 = Ollama (local), 1 = OpenAI gpt-4o-mini (online)
 
 
 def _ensure_collection(vector_size: int):
@@ -123,8 +129,16 @@ def search_documents(search_query: SearchQuery) -> list:
 
 @app.post("/answer")
 def get_answer(answer_query: AnswerQuery):
-    if not openai_client:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured.")
+    use_online = answer_query.use_online_model == 1
+
+    if use_online:
+        if not openai_client:
+            raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured.")
+        client, model = openai_client, OPENAI_MODEL
+    else:
+        if not ollama_client:
+            raise HTTPException(status_code=503, detail="Ollama client is not available.")
+        client, model = ollama_client, OLLAMA_MODEL
 
     matches = search_documents(SearchQuery(query=answer_query.question, limit=answer_query.limit))
     if not matches:
@@ -137,12 +151,17 @@ def get_answer(answer_query: AnswerQuery):
         f"Context:\n{context}\n\nQuestion: {answer_query.question}"
     )
 
-    completion = openai_client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        logger.error(f"Chat completion failed (model={model}, online={use_online}): {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to get response from model '{model}'.")
 
     return {
         "answer": completion.choices[0].message.content,
         "sources": [m["source"] for m in matches],
+        "model_used": model,
     }
