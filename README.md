@@ -66,3 +66,19 @@ NotebookLM rất mạnh ở việc:
                        ▼
                 Git Repository
 ```
+
+## Setup / Vận hành
+
+### Khởi động hệ thống
+```
+docker compose up -d --build
+```
+
+### Pull model cho Ollama (chạy 1 lần sau khi container `ollama` đã chạy)
+`knowledge_service` hỗ trợ cả OpenAI (`gpt-4o-mini`, online) và Ollama (local, mặc định `llama3.2:3b`) cho endpoint `/answer` (chọn qua tham số `use_online_model`: `0` = Ollama, `1` = OpenAI). Trước khi dùng nhánh Ollama, cần pull model về:
+
+```
+docker exec -it ollama ollama pull llama3.2:3b
+```
+
+Đổi model bằng cách set biến môi trường `OLLAMA_MODEL` trước khi `docker compose up` (ví dụ `qwen2.5:7b`), rồi pull đúng model đó.

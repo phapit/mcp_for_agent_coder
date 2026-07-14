@@ -1,0 +1,13 @@
+# .gitignore for pyhon
+.idea
+/venv/
+data/*
+.vs/
+tests/*
+.env
+**/__pycache__/
+**/.pytest_cache/
+*.py[cod]
+*$py.class
+logs/*
+excel_sources/

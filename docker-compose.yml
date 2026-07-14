@@ -32,6 +32,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=http://ollama:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - VISION_PROVIDER=${VISION_PROVIDER:-openai}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4o}
+      - ANTHROPIC_VISION_MODEL=${ANTHROPIC_VISION_MODEL:-claude-sonnet-4-5}
+      - EXCEL_SOURCE_DIR=/app/project_data/excel_sources
     volumes:
       - .:/app/project_data
     depends_on:

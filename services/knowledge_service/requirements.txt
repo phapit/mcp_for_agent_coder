@@ -5,4 +5,9 @@ sentence-transformers
 langchain-community
 langchain-text-splitters
 openai
+anthropic
+openpyxl
+Pillow
+python-multipart
 python-dotenv
+pytest

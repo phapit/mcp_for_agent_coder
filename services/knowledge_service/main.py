@@ -1,14 +1,19 @@
 import os
 import glob
 import logging
+import tempfile
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from langchain_text_splitters import MarkdownTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 import openai
+
+import excel_ingest
+import manifest as manifest_store
+import vision
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,6 +30,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 DOCS_GLOB = os.getenv("DOCS_GLOB", "/app/project_data/docs/**/*.md")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
+EXCEL_SOURCE_DIR = os.getenv("EXCEL_SOURCE_DIR", "/app/project_data/excel_sources")
+EXCEL_OUTPUT_DIR = os.getenv("EXCEL_OUTPUT_DIR", "/app/project_data/docs/imported")
 
 # --- Initialize Global Objects ---
 try:
@@ -53,6 +60,11 @@ class AnswerQuery(BaseModel):
     question: str
     limit: int = 3
     use_online_model: int = 0  # 0 = Ollama (local), 1 = OpenAI gpt-4o-mini (online)
+
+
+class IngestExcelRequest(BaseModel):
+    use_online_model: int = 0  # 0 = Ollama (local), 1 = OpenAI gpt-4o-mini (online) cho bước refine
+    force: bool = False
 
 
 def _ensure_collection(vector_size: int):
@@ -165,3 +177,92 @@ def get_answer(answer_query: AnswerQuery):
         "sources": [m["source"] for m in matches],
         "model_used": model,
     }
+
+
+def _select_chat_client(use_online_model: int):
+    if use_online_model == 1:
+        if not openai_client:
+            raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured.")
+        return openai_client, OPENAI_MODEL
+    if not ollama_client:
+        raise HTTPException(status_code=503, detail="Ollama client is not available.")
+    return ollama_client, OLLAMA_MODEL
+
+
+def _check_vision_available():
+    if vision.VISION_PROVIDER == "anthropic" and not vision.anthropic_vision_client:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured (required for VISION_PROVIDER=anthropic).",
+        )
+    if vision.VISION_PROVIDER == "openai" and not vision.openai_vision_client:
+        raise HTTPException(
+            status_code=503,
+            detail="OPENAI_API_KEY is not configured (required for VISION_PROVIDER=openai).",
+        )
+
+
+@app.post("/ingest-excel")
+def ingest_excel(request: IngestExcelRequest):
+    """
+    Quét EXCEL_SOURCE_DIR, convert từng file .xlsx chưa xử lý (hoặc đã đổi nội dung) thành
+    Markdown trong EXCEL_OUTPUT_DIR, dùng vision LLM để caption ảnh nhúng và text LLM để làm sạch
+    format cuối cùng.
+    """
+    _check_vision_available()
+    client, model = _select_chat_client(request.use_online_model)
+
+    files = glob.glob(os.path.join(EXCEL_SOURCE_DIR, "*.xlsx"))
+    if not files:
+        raise HTTPException(status_code=404, detail=f"No .xlsx files found in '{EXCEL_SOURCE_DIR}'.")
+
+    manifest = manifest_store.load_manifest(EXCEL_OUTPUT_DIR)
+    processed, skipped, failed = [], [], []
+
+    for path in files:
+        name = os.path.basename(path)
+        with open(path, "rb") as f:
+            content = f.read()
+        content_hash = manifest_store.compute_hash(content)
+
+        if not request.force and manifest_store.is_unchanged(manifest, name, content_hash):
+            skipped.append(name)
+            continue
+
+        try:
+            result = excel_ingest.process_excel_file(path, EXCEL_OUTPUT_DIR, client, model)
+            manifest_store.record_success(manifest, name, content_hash, result["output_md"], result["image_count"])
+            manifest_store.save_manifest(EXCEL_OUTPUT_DIR, manifest)
+            processed.append({"file": name, **result})
+        except Exception as e:
+            logger.error(f"Failed to process '{name}': {e}", exc_info=True)
+            failed.append({"file": name, "error": str(e)})
+
+    return {"processed": processed, "skipped": skipped, "failed": failed}
+
+
+@app.post("/ingest-excel/upload")
+async def ingest_excel_upload(use_online_model: int = 0, file: UploadFile = File(...)):
+    """Upload 1 file .xlsx ad-hoc và xử lý ngay (không qua manifest skip)."""
+    _check_vision_available()
+    client, model = _select_chat_client(use_online_model)
+
+    content = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        result = excel_ingest.process_excel_file(tmp_path, EXCEL_OUTPUT_DIR, client, model)
+    except Exception as e:
+        logger.error(f"Failed to process uploaded file '{file.filename}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to process uploaded file: {e}")
+    finally:
+        os.remove(tmp_path)
+
+    manifest = manifest_store.load_manifest(EXCEL_OUTPUT_DIR)
+    content_hash = manifest_store.compute_hash(content)
+    manifest_store.record_success(manifest, file.filename, content_hash, result["output_md"], result["image_count"])
+    manifest_store.save_manifest(EXCEL_OUTPUT_DIR, manifest)
+
+    return {"file": file.filename, **result}
