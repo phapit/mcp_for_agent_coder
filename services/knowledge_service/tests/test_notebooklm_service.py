@@ -17,7 +17,7 @@ def test_process_spreadsheet_runs_source_report_and_download(tmp_path):
             return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-1"}}), "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    result = NotebookLMService("nb-1", str(tmp_path), runner=runner).process_spreadsheet(
+    result = NotebookLMService("nb-1", str(tmp_path), auth_json="{\"cookies\":[]}", runner=runner).process_spreadsheet(
         "https://docs.google.com/spreadsheets/d/example", "sheet.md"
     )
 
@@ -42,7 +42,7 @@ def test_process_spreadsheet_waits_for_task_id_response(tmp_path):
             payload = None
         return subprocess.CompletedProcess(command, 0, json.dumps(payload) if payload is not None else "", "")
 
-    result = NotebookLMService("nb-1", str(tmp_path), runner=runner).process_spreadsheet(
+    result = NotebookLMService("nb-1", str(tmp_path), auth_json="{\"cookies\":[]}", runner=runner).process_spreadsheet(
         "https://docs.google.com/spreadsheets/d/example", "sheet.md"
     )
 
@@ -52,9 +52,14 @@ def test_process_spreadsheet_waits_for_task_id_response(tmp_path):
 
 def test_process_spreadsheet_requires_notebook_id():
     with pytest.raises(NotebookLMError, match="NOTEBOOKLM_NOTEBOOK_ID"):
-        NotebookLMService().process_spreadsheet("https://example.com/sheet", "sheet.md")
+        NotebookLMService(auth_json="{\"cookies\":[]}").process_spreadsheet("https://example.com/sheet", "sheet.md")
+
+
+def test_process_spreadsheet_requires_auth_json():
+    with pytest.raises(NotebookLMError, match="NOTEBOOKLM_AUTH_JSON"):
+        NotebookLMService("nb-1").process_spreadsheet("https://example.com/sheet", "sheet.md")
 
 
 def test_process_spreadsheet_rejects_non_http_url():
-    with pytest.raises(NotebookLMError, match="HTTP\(S\) URL"):
-        NotebookLMService("nb-1").process_spreadsheet("file:///sheet", "sheet.md")
+    with pytest.raises(NotebookLMError, match=r"HTTP\(S\) URL"):
+        NotebookLMService("nb-1", auth_json="{\"cookies\":[]}").process_spreadsheet("file:///sheet", "sheet.md")

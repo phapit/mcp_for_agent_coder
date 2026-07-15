@@ -29,11 +29,13 @@ class NotebookLMService:
         self,
         notebook_id: str | None = None,
         output_dir: str | None = None,
+        auth_json: str | None = None,
         cli: str | None = None,
         runner: Runner | None = None,
     ) -> None:
         self.notebook_id = notebook_id or os.getenv("NOTEBOOKLM_NOTEBOOK_ID", "")
         self.output_dir = Path(output_dir or os.getenv("NOTEBOOKLM_OUTPUT_DIR", "/app/project_data/docs/imported"))
+        self.auth_json = auth_json or os.getenv("NOTEBOOKLM_AUTH_JSON", "")
         self.cli = cli or os.getenv("NOTEBOOKLM_CLI", "notebooklm")
         self.runner = runner or _default_runner
 
@@ -41,7 +43,17 @@ class NotebookLMService:
         command = [self.cli, *args]
         if json_output:
             command.append("--json")
-        result = self.runner(command)
+        previous_auth_json = os.environ.get("NOTEBOOKLM_AUTH_JSON")
+        try:
+            if self.auth_json:
+                os.environ["NOTEBOOKLM_AUTH_JSON"] = self.auth_json
+            result = self.runner(command)
+        finally:
+            if self.auth_json:
+                if previous_auth_json is None:
+                    os.environ.pop("NOTEBOOKLM_AUTH_JSON", None)
+                else:
+                    os.environ["NOTEBOOKLM_AUTH_JSON"] = previous_auth_json
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
             raise NotebookLMError(detail or f"NotebookLM command failed: {' '.join(command)}")
@@ -55,6 +67,8 @@ class NotebookLMService:
     def process_spreadsheet(self, spreadsheet_url: str, output_name: str) -> NotebookLMResult:
         if not self.notebook_id:
             raise NotebookLMError("NOTEBOOKLM_NOTEBOOK_ID is not configured.")
+        if not self.auth_json:
+            raise NotebookLMError("NOTEBOOKLM_AUTH_JSON is not configured.")
         if not spreadsheet_url.startswith(("https://", "http://")):
             raise NotebookLMError("spreadsheet_url must be an HTTP(S) URL.")
 

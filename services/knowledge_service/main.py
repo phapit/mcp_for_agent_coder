@@ -2,19 +2,22 @@ import os
 import glob
 import logging
 import tempfile
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from langchain_text_splitters import MarkdownTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct
 import openai
+from pymongo import MongoClient
 
 import excel_ingest
 import manifest as manifest_store
 import vision
 from notebooklm_service import NotebookLMError, NotebookLMService
+from project_config_store import ProjectConfigError, ProjectConfigStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +37,10 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
 EXCEL_SOURCE_DIR = os.getenv("EXCEL_SOURCE_DIR", "/app/project_data/excel_sources")
 EXCEL_OUTPUT_DIR = os.getenv("EXCEL_OUTPUT_DIR", "/app/project_data/docs/imported")
 NOTEBOOKLM_OUTPUT_DIR = os.getenv("NOTEBOOKLM_OUTPUT_DIR", EXCEL_OUTPUT_DIR)
+NOTEBOOKLM_AUTH_DIR = os.getenv("NOTEBOOKLM_AUTH_DIR", "/app/project_data/notebooklm_auth")
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://mongodb:27017")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "knowledge_service")
+MONGODB_COLLECTION_NAME = os.getenv("MONGODB_COLLECTION_NAME", "project_notebook_configs")
 
 # --- Initialize Global Objects ---
 try:
@@ -41,12 +48,16 @@ try:
     qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
     openai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
     ollama_client = openai.OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
+    mongo_client = MongoClient(MONGODB_URI)
+    project_config_store = ProjectConfigStore(mongo_client[MONGODB_DB_NAME][MONGODB_COLLECTION_NAME])
 except Exception as e:
     logger.error(f"Failed to initialize models or clients on startup: {e}", exc_info=True)
     embeddings = None
     qdrant_client = None
     openai_client = None
     ollama_client = None
+    mongo_client = None
+    project_config_store = None
 
 app = FastAPI(title="Knowledge Curator Service")
 
@@ -70,8 +81,46 @@ class IngestExcelRequest(BaseModel):
 
 
 class IngestSpreadsheetRequest(BaseModel):
+    project_name: str
+    notebook_env: str
     spreadsheet_url: str
     output_name: str = "spreadsheet.md"
+
+    @field_validator("project_name", "notebook_env")
+    @classmethod
+    def validate_scope_name(cls, value: str) -> str:
+        return _validate_storage_name(value, "scope")
+
+    @field_validator("output_name")
+    @classmethod
+    def validate_output_name(cls, value: str) -> str:
+        _validate_output_name(value)
+        return value
+
+
+class ProjectNotebookConfigUpsertRequest(BaseModel):
+    project_name: str
+    notebook_env: str
+    notebook_id: str
+    notebooklm_auth_name: str
+
+    @field_validator("project_name", "notebook_env")
+    @classmethod
+    def validate_scope_name(cls, value: str) -> str:
+        return _validate_storage_name(value, "scope")
+
+    @field_validator("notebook_id")
+    @classmethod
+    def validate_notebook_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("notebook_id must not be empty.")
+        return value
+
+    @field_validator("notebooklm_auth_name")
+    @classmethod
+    def validate_auth_name(cls, value: str) -> str:
+        return _validate_auth_name(value)
 
 
 def _ensure_collection(vector_size: int):
@@ -81,6 +130,52 @@ def _ensure_collection(vector_size: int):
             collection_name=COLLECTION_NAME,
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
         )
+
+
+def _validate_storage_name(value: str, label: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError(f"{label} must not be empty.")
+    if any(char in value for char in ("/", "\\", "..")):
+        raise ValueError(f"{label} must not contain path separators or '..'.")
+    return value
+
+
+def _validate_output_name(value: str) -> None:
+    if "/" in value or "\\" in value or not value.endswith(".md"):
+        raise ValueError("output_name must be a plain .md filename.")
+
+
+def _validate_auth_name(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("notebooklm_auth_name must not be empty.")
+    if any(char in value for char in ("/", "\\", "..")):
+        raise ValueError("notebooklm_auth_name must not contain path separators or '..'.")
+    if not value.endswith(".json"):
+        raise ValueError("notebooklm_auth_name must end with .json.")
+    return value
+
+
+def _require_project_config_store() -> ProjectConfigStore:
+    if project_config_store is None:
+        raise HTTPException(status_code=503, detail="MongoDB project config store is not available.")
+    return project_config_store
+
+
+def _load_notebook_auth_json(auth_name: str) -> str:
+    auth_name = _validate_auth_name(auth_name)
+    auth_path = Path(NOTEBOOKLM_AUTH_DIR) / auth_name
+    if not auth_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"NotebookLM auth file '{auth_name}' was not found in auth directory.",
+        )
+    return auth_path.read_text(encoding="utf-8")
+
+
+def _project_output_dir(project_name: str) -> str:
+    return str(Path(NOTEBOOKLM_OUTPUT_DIR) / project_name)
 
 
 @app.get("/")
@@ -277,11 +372,20 @@ async def ingest_excel_upload(use_online_model: int = 0, file: UploadFile = File
 
 @app.post("/ingest-spreadsheet")
 def ingest_spreadsheet(request: IngestSpreadsheetRequest):
-    """Add a Google Spreadsheet URL to the fixed NotebookLM notebook and export Markdown."""
-    if "/" in request.output_name or "\\" in request.output_name or not request.output_name.endswith(".md"):
-        raise HTTPException(status_code=422, detail="output_name must be a plain .md filename.")
+    """Resolve project NotebookLM config from MongoDB and export Markdown."""
+    store = _require_project_config_store()
+    try:
+        config = store.get_config(request.project_name, request.notebook_env)
+    except ProjectConfigError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    service = NotebookLMService(output_dir=NOTEBOOKLM_OUTPUT_DIR)
+    auth_json = _load_notebook_auth_json(config.notebooklm_auth_name)
+    output_dir = _project_output_dir(request.project_name)
+    service = NotebookLMService(
+        notebook_id=config.notebook_id,
+        output_dir=output_dir,
+        auth_json=auth_json,
+    )
     try:
         result = service.process_spreadsheet(request.spreadsheet_url, request.output_name)
     except NotebookLMError as exc:
@@ -289,24 +393,110 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         status_code = 503 if "not configured" in str(exc) else 502
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
-    manifest = manifest_store.load_manifest(NOTEBOOKLM_OUTPUT_DIR)
+    manifest = manifest_store.load_manifest(output_dir)
     manifest_store.record_success(
         manifest,
         request.spreadsheet_url,
         manifest_store.compute_hash(request.spreadsheet_url.encode("utf-8")),
         result.output_md,
         0,
+        project_name=request.project_name,
+        notebook_env=request.notebook_env,
         notebook_id=service.notebook_id,
+        notebooklm_auth_name=config.notebooklm_auth_name,
         source_id=result.source_id,
         artifact_id=result.artifact_id,
         spreadsheet_url=request.spreadsheet_url,
     )
-    manifest_store.save_manifest(NOTEBOOKLM_OUTPUT_DIR, manifest)
+    manifest_store.save_manifest(output_dir, manifest)
 
     return {
+        "project_name": request.project_name,
+        "notebook_env": request.notebook_env,
         "spreadsheet_url": request.spreadsheet_url,
         "notebook_id": service.notebook_id,
         "source_id": result.source_id,
         "artifact_id": result.artifact_id,
         "output_md": result.output_md,
     }
+
+
+@app.post("/project-notebook-configs")
+def upsert_project_notebook_config(request: ProjectNotebookConfigUpsertRequest):
+    store = _require_project_config_store()
+    _load_notebook_auth_json(request.notebooklm_auth_name)
+    config = store.upsert_config(
+        request.project_name,
+        request.notebook_env,
+        request.notebook_id,
+        request.notebooklm_auth_name,
+    )
+    return config.__dict__
+
+
+@app.get("/project-notebook-configs/{project_name}")
+def list_project_notebook_configs(project_name: str):
+    store = _require_project_config_store()
+    try:
+        project_name = _validate_storage_name(project_name, "project_name")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return [config.__dict__ for config in store.list_configs(project_name)]
+
+
+@app.get("/project-notebook-configs/{project_name}/{notebook_env}")
+def get_project_notebook_config(project_name: str, notebook_env: str):
+    store = _require_project_config_store()
+    try:
+        project_name = _validate_storage_name(project_name, "project_name")
+        notebook_env = _validate_storage_name(notebook_env, "notebook_env")
+        config = store.get_config(project_name, notebook_env)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ProjectConfigError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return config.__dict__
+
+
+@app.put("/project-notebook-configs/{project_name}/{notebook_env}")
+def update_project_notebook_config(
+    project_name: str,
+    notebook_env: str,
+    request: ProjectNotebookConfigUpsertRequest,
+):
+    store = _require_project_config_store()
+    try:
+        project_name = _validate_storage_name(project_name, "project_name")
+        notebook_env = _validate_storage_name(notebook_env, "notebook_env")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if request.project_name != project_name or request.notebook_env != notebook_env:
+        raise HTTPException(
+            status_code=422,
+            detail="Path project_name/notebook_env must match request body.",
+        )
+    _load_notebook_auth_json(request.notebooklm_auth_name)
+    config = store.upsert_config(
+        project_name,
+        notebook_env,
+        request.notebook_id,
+        request.notebooklm_auth_name,
+    )
+    return config.__dict__
+
+
+@app.delete("/project-notebook-configs/{project_name}/{notebook_env}")
+def delete_project_notebook_config(project_name: str, notebook_env: str):
+    store = _require_project_config_store()
+    try:
+        project_name = _validate_storage_name(project_name, "project_name")
+        notebook_env = _validate_storage_name(notebook_env, "notebook_env")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    deleted = store.delete_config(project_name, notebook_env)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Config not found for project_name='{project_name}' and notebook_env='{notebook_env}'.",
+        )
+    return {"deleted": True, "project_name": project_name, "notebook_env": notebook_env}

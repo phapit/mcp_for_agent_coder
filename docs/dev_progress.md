@@ -29,3 +29,13 @@
 - Tài liệu vận hành: `docs/NotebookLM-Spreadsheet-Ingestion.md`.
 - Smoke test adapter: pass. Kiểm tra cú pháp Python và Docker Compose config: pass.
 - Unit test đầy đủ qua pytest chưa chạy được trên host do thiếu `openpyxl`/`python3-venv`; cần xác nhận trong Docker hoặc môi trường Python đầy đủ.
+
+### 2026-07-15 21:xx — Project Notebook Config + MongoDB
+- Thêm MongoDB service vào `docker-compose.yml` và cấu hình `MONGODB_URI`, `MONGODB_DB_NAME`.
+- Tạo `services/knowledge_service/project_config_store.py` để lưu cấu hình `project_name + notebook_env`.
+- Thêm API CRUD `/project-notebook-configs*` cho phép cài đặt `notebook_id` và `notebooklm_auth_name` theo từng env của project.
+- Sửa `POST /ingest-spreadsheet` để chỉ cần `project_name`, `notebook_env`, `spreadsheet_url`, `output_name`.
+- Đọc auth JSON từ folder `NOTEBOOKLM_AUTH_DIR`, không còn phụ thuộc `NOTEBOOKLM_NOTEBOOK_ID` cố định.
+- Lưu Markdown và manifest theo sub-directory `docs/imported/<project_name>/`.
+- Thêm unit test cho `ProjectConfigStore` và cập nhật test `NotebookLMService` cho auth JSON bắt buộc.
+- Thêm script CLI `scripts/import_project_config.py` để import nhanh cấu hình project/env khi chưa có UI.

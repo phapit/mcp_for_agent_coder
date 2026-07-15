@@ -1,6 +1,16 @@
 # version: '3.8'
 #
 services:
+#  mongodb:
+#    image: mongo:8
+#    container_name: knowledge_mongodb
+#    ports:
+#      - "2017:2017"
+#    volumes:
+#      - ./mongo_data:/data/db
+#    networks:
+#      - ai_agent_net
+
   qdrant:
     image: qdrant/qdrant:v1.9.2
     container_name: qdrant_db
@@ -37,8 +47,10 @@ services:
       - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4o}
       - ANTHROPIC_VISION_MODEL=${ANTHROPIC_VISION_MODEL:-claude-sonnet-4-5}
       - EXCEL_SOURCE_DIR=/app/project_data/excel_sources
-      - NOTEBOOKLM_NOTEBOOK_ID=${NOTEBOOKLM_NOTEBOOK_ID}
       - NOTEBOOKLM_OUTPUT_DIR=/app/project_data/docs/imported
+      - NOTEBOOKLM_AUTH_DIR=/app/project_data/notebooklm_auth
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:2017}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-knowledge_service}
     env_file:
       - .env
     volumes:

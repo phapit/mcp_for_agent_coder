@@ -12,3 +12,4 @@ python-multipart
 python-dotenv
 pytest
 notebooklm-py
+pymongo

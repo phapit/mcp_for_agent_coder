@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Call the knowledge_service spreadsheet ingestion API."""
+
+import argparse
+import json
+import sys
+from urllib import error, request
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Ingest a spreadsheet through knowledge_service."
+    )
+    parser.add_argument("project_name", help="Project name, for example: projectA")
+    parser.add_argument("notebook_env", help="Notebook environment, for example: env_a")
+    parser.add_argument("spreadsheet_url", help="Google Spreadsheet URL")
+    parser.add_argument("output_name", help="Markdown output filename, for example: sales.md")
+    parser.add_argument(
+        "--base-url",
+        default="http://localhost:8000",
+        help="knowledge_service base URL. Default: http://localhost:8000",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="HTTP timeout in seconds. Default: 30",
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    payload = {
+        "project_name": args.project_name,
+        "notebook_env": args.notebook_env,
+        "spreadsheet_url": args.spreadsheet_url,
+        "output_name": args.output_name,
+    }
+    body = json.dumps(payload).encode("utf-8")
+    endpoint = f"{args.base_url.rstrip('/')}/ingest-spreadsheet"
+    req = request.Request(
+        endpoint,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(req, timeout=args.timeout) as response:
+            response_body = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        print(f"Ingest failed: HTTP {exc.code}", file=sys.stderr)
+        print(detail, file=sys.stderr)
+        return 1
+    except error.URLError as exc:
+        print(f"Ingest failed: cannot connect to {endpoint}: {exc.reason}", file=sys.stderr)
+        return 1
+    except TimeoutError:
+        print(f"Ingest failed: request timed out after {args.timeout:g}s", file=sys.stderr)
+        return 1
+
+    print(response_body)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

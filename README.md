@@ -74,6 +74,40 @@ NotebookLM rất mạnh ở việc:
 docker compose up -d --build
 ```
 
+### Import cấu hình project NotebookLM
+
+Sau khi `knowledge_service` đã chạy, có thể import nhanh cấu hình cho từng project/env:
+
+```bash
+python3 scripts/import_project_config.py projectA env_a nb-123 team-a.json
+```
+
+Nếu API không chạy ở `http://localhost:8000`, truyền thêm `--base-url`:
+
+```bash
+python3 scripts/import_project_config.py projectA env_a nb-123 team-a.json --base-url http://127.0.0.1:8000
+```
+
+Gọi API ingest spreadsheet:
+
+```bash
+python3 scripts/ingest_spreadsheet.py \
+  projectA env_a \
+  "https://docs.google.com/spreadsheets/d/<ID>/edit" \
+  sales-report.md
+```
+
+Có thể chỉ định URL service khác bằng `--base-url`.
+
+Xóa toàn bộ dữ liệu trong MongoDB database `knowledge_service`:
+
+```bash
+python3 scripts/clear_knowledge_database.py --dry-run
+python3 scripts/clear_knowledge_database.py --yes
+```
+
+Script chỉ xóa MongoDB database; không xóa dữ liệu Qdrant hoặc Markdown trong `docs/imported/`.
+
 ### Pull model cho Ollama (chạy 1 lần sau khi container `ollama` đã chạy)
 `knowledge_service` hỗ trợ cả OpenAI (`gpt-4o-mini`, online) và Ollama (local, mặc định `llama3.2:3b`) cho endpoint `/answer` (chọn qua tham số `use_online_model`: `0` = Ollama, `1` = OpenAI). Trước khi dùng nhánh Ollama, cần pull model về:
 

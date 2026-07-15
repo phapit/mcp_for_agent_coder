@@ -1,12 +1,13 @@
 import pytest
-from openpyxl import Workbook
-from openpyxl.drawing.image import Image as XLImage
-from PIL import Image as PILImage
 
 
 @pytest.fixture
 def sample_xlsx_path(tmp_path):
     """1 sheet, vài dòng dữ liệu, 1 ảnh nhúng neo tại cell C2 (row 2)."""
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as XLImage
+    from PIL import Image as PILImage
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Sheet1"
