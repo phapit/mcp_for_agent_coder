@@ -102,7 +102,7 @@ class IngestExcelRequest(BaseModel):
 class IngestSpreadsheetRequest(BaseModel):
     project_name: str
     notebook_env: str
-    spreadsheet_url: str
+    spreadsheet_id: str
     output_name: str = "spreadsheet.md"
 
     @field_validator("project_name", "notebook_env")
@@ -411,7 +411,7 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         auth_json=auth_json,
     )
     try:
-        result = service.process_spreadsheet(request.spreadsheet_url, request.output_name)
+        result = service.process_spreadsheet(request.spreadsheet_id, request.output_name)
     except NotebookLMError as exc:
         logger.error("NotebookLM spreadsheet ingestion failed: %s", exc)
         status_code = 503 if "not configured" in str(exc) else 502
@@ -420,8 +420,8 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
     manifest = manifest_store.load_manifest(output_dir)
     manifest_store.record_success(
         manifest,
-        request.spreadsheet_url,
-        manifest_store.compute_hash(request.spreadsheet_url.encode("utf-8")),
+        request.spreadsheet_id,
+        manifest_store.compute_hash(request.spreadsheet_id.encode("utf-8")),
         result.output_md,
         0,
         project_name=request.project_name,
@@ -430,14 +430,14 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         notebooklm_auth_name=config.notebooklm_auth_name,
         source_id=result.source_id,
         artifact_id=result.artifact_id,
-        spreadsheet_url=request.spreadsheet_url,
+        spreadsheet_id=request.spreadsheet_id,
     )
     manifest_store.save_manifest(output_dir, manifest)
 
     return {
         "project_name": request.project_name,
         "notebook_env": request.notebook_env,
-        "spreadsheet_url": request.spreadsheet_url,
+        "spreadsheet_id": request.spreadsheet_id,
         "notebook_id": service.notebook_id,
         "source_id": result.source_id,
         "artifact_id": result.artifact_id,

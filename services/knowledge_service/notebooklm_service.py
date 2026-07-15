@@ -64,21 +64,30 @@ class NotebookLMService:
         except json.JSONDecodeError as exc:
             raise NotebookLMError("NotebookLM returned invalid JSON.") from exc
 
-    def process_spreadsheet(self, spreadsheet_url: str, output_name: str) -> NotebookLMResult:
+    def process_spreadsheet(self, spreadsheet_id: str, output_name: str) -> NotebookLMResult:
         if not self.notebook_id:
             raise NotebookLMError("NOTEBOOKLM_NOTEBOOK_ID is not configured.")
         if not self.auth_json:
             raise NotebookLMError("NOTEBOOKLM_AUTH_JSON is not configured.")
-        if not spreadsheet_url.startswith(("https://", "http://")):
-            raise NotebookLMError("spreadsheet_url must be an HTTP(S) URL.")
+        if not spreadsheet_id.strip():
+            raise NotebookLMError("spreadsheet_id must not be empty.")
 
         source = self._run(
-            ["source", "add", spreadsheet_url, "-n", self.notebook_id],
+            [
+                "source",
+                "add-drive",
+                spreadsheet_id,
+                output_name,
+                "--mime-type",
+                "google-sheets",
+                "-n",
+                self.notebook_id,
+            ],
             json_output=True,
         )
         source_id = source.get("source", {}).get("id")
         if source_id:
-            self._run(["source", "wait", source_id, "-n", self.notebook_id])
+            self._run(["source", "wait", source_id, "--timeout", "120", "-n", self.notebook_id])
 
         artifact = self._run(
             ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id],
@@ -93,7 +102,7 @@ class NotebookLMService:
         if not artifact_id:
             raise NotebookLMError("NotebookLM report response did not include an artifact id.")
 
-        self._run(["artifact", "wait", artifact_id, "-n", self.notebook_id])
+        self._run(["artifact", "wait", artifact_id, "--timeout", "120", "-n", self.notebook_id])
         self.output_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.output_dir / output_name
         self._run(

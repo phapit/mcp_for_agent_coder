@@ -34,7 +34,7 @@
 - Thêm MongoDB service vào `docker-compose.yml` và cấu hình `MONGODB_URI`, `MONGODB_DB_NAME`.
 - Tạo `services/knowledge_service/project_config_store.py` để lưu cấu hình `project_name + notebook_env`.
 - Thêm API CRUD `/project-notebook-configs*` cho phép cài đặt `notebook_id` và `notebooklm_auth_name` theo từng env của project.
-- Sửa `POST /ingest-spreadsheet` để chỉ cần `project_name`, `notebook_env`, `spreadsheet_url`, `output_name`.
+- Sửa `POST /ingest-spreadsheet` để chỉ cần `project_name`, `notebook_env`, `spreadsheet_id`, `output_name`.
 - Đọc auth JSON từ folder `NOTEBOOKLM_AUTH_DIR`, không còn phụ thuộc `NOTEBOOKLM_NOTEBOOK_ID` cố định.
 - Lưu Markdown và manifest theo sub-directory `docs/imported/<project_name>/`.
 - Thêm unit test cho `ProjectConfigStore` và cập nhật test `NotebookLMService` cho auth JSON bắt buộc.

@@ -9,10 +9,10 @@ OpenAI API Key hoặc Claude API Key.
 ## Kiến trúc hiện tại
 
 ```text
-Google Spreadsheet URL
+Google Spreadsheet ID
         |
         v
-notebooklm source add
+notebooklm source add-drive --mime-type google-sheets
         |
         v
 notebooklm source wait
@@ -96,7 +96,7 @@ Request:
 {
   "project_name": "projectA",
   "notebook_env": "env_a",
-  "spreadsheet_url": "https://docs.google.com/spreadsheets/d/<ID>/edit",
+  "spreadsheet_id": "<Google-Sheet-file-ID>",
   "output_name": "requirements.md"
 }
 ```
@@ -110,7 +110,7 @@ Response thành công gồm:
 {
   "project_name": "projectA",
   "notebook_env": "env_a",
-  "spreadsheet_url": "https://docs.google.com/spreadsheets/d/<ID>/edit",
+  "spreadsheet_id": "<Google-Sheet-file-ID>",
   "notebook_id": "<notebook-id>",
   "source_id": "<source-id>",
   "artifact_id": "<artifact-id>",
@@ -141,7 +141,7 @@ curl -X POST http://localhost:8000/ingest-spreadsheet \
   -d '{
     "project_name": "projectA",
     "notebook_env": "env_a",
-    "spreadsheet_url": "https://docs.google.com/spreadsheets/d/<ID>/edit",
+    "spreadsheet_id": "<Google-Sheet-file-ID>",
     "output_name": "test-spreadsheet.md"
   }'
 ```

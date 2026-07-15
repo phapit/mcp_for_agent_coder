@@ -11,20 +11,21 @@ def test_process_spreadsheet_runs_source_report_and_download(tmp_path):
 
     def runner(command):
         calls.append(list(command))
-        if command[1:3] == ["source", "add"]:
+        if command[1:3] == ["source", "add-drive"]:
             return subprocess.CompletedProcess(command, 0, json.dumps({"source": {"id": "src-1"}}), "")
         if command[1:3] == ["generate", "report"]:
             return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-1"}}), "")
         return subprocess.CompletedProcess(command, 0, "", "")
 
     result = NotebookLMService("nb-1", str(tmp_path), auth_json="{\"cookies\":[]}", runner=runner).process_spreadsheet(
-        "https://docs.google.com/spreadsheets/d/example", "sheet.md"
+        "spreadsheet-id", "sheet.md"
     )
 
     assert result.source_id == "src-1"
     assert result.artifact_id == "art-1"
     assert result.output_md == str(tmp_path / "sheet.md")
-    assert calls[0][0:4] == ["notebooklm", "source", "add", "https://docs.google.com/spreadsheets/d/example"]
+    assert calls[0][0:4] == ["notebooklm", "source", "add-drive", "spreadsheet-id"]
+    assert calls[0][4:8] == ["sheet.md", "--mime-type", "google-sheets", "-n"]
     assert calls[-2][1:3] == ["artifact", "wait"]
     assert calls[-1][1:3] == ["download", "report"]
 
@@ -34,7 +35,7 @@ def test_process_spreadsheet_waits_for_task_id_response(tmp_path):
 
     def runner(command):
         calls.append(list(command))
-        if command[1:3] == ["source", "add"]:
+        if command[1:3] == ["source", "add-drive"]:
             payload = {"source": {"id": "src-1"}}
         elif command[1:3] == ["generate", "report"]:
             payload = {"task_id": "task-1"}
@@ -43,7 +44,7 @@ def test_process_spreadsheet_waits_for_task_id_response(tmp_path):
         return subprocess.CompletedProcess(command, 0, json.dumps(payload) if payload is not None else "", "")
 
     result = NotebookLMService("nb-1", str(tmp_path), auth_json="{\"cookies\":[]}", runner=runner).process_spreadsheet(
-        "https://docs.google.com/spreadsheets/d/example", "sheet.md"
+        "spreadsheet-id", "sheet.md"
     )
 
     assert result.artifact_id == "task-1"
@@ -60,6 +61,6 @@ def test_process_spreadsheet_requires_auth_json():
         NotebookLMService("nb-1").process_spreadsheet("https://example.com/sheet", "sheet.md")
 
 
-def test_process_spreadsheet_rejects_non_http_url():
-    with pytest.raises(NotebookLMError, match=r"HTTP\(S\) URL"):
-        NotebookLMService("nb-1", auth_json="{\"cookies\":[]}").process_spreadsheet("file:///sheet", "sheet.md")
+def test_process_spreadsheet_rejects_empty_id():
+    with pytest.raises(NotebookLMError, match="spreadsheet_id"):
+        NotebookLMService("nb-1", auth_json="{\"cookies\":[]}").process_spreadsheet("  ", "sheet.md")

@@ -79,7 +79,7 @@ Chọn phương án 2 vì:
   - `PUT /project-notebook-configs/{project_name}/{notebook_env}`
   - `DELETE /project-notebook-configs/{project_name}/{notebook_env}`
 - Sửa `POST /ingest-spreadsheet`:
-  - Input chỉ còn `project_name`, `notebook_env`, `spreadsheet_url`, `output_name`
+  - Input chỉ còn `project_name`, `notebook_env`, `spreadsheet_id`, `output_name`
   - Resolve config từ MongoDB
   - Đọc auth file từ `NOTEBOOKLM_AUTH_DIR/<notebooklm_auth_name>`
   - Lưu Markdown vào `docs/imported/<project_name>/`
