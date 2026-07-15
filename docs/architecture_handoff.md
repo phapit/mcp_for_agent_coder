@@ -23,7 +23,7 @@ Chọn phương án 2. Lý do: giữ đúng ranh giới trách nhiệm đã đư
 ## Thiết kế
 
 - **`services/knowledge_service`** (port 8000)
-  - `POST /ingest`: đọc toàn bộ `docs/**/*.md` (qua volume `.:/app/project_data`), chia nhỏ bằng
+  - `POST /ingest`: đọc các file `docs/imported/**/*.md` theo `DOCS_GLOB` (qua volume `.:/app/project_data`), chia nhỏ bằng
     `MarkdownTextSplitter`, tạo embedding (`sentence-transformers/all-MiniLM-L6-v2`), upsert vào Qdrant.
   - `POST /search`: embed câu hỏi, tìm kiếm ngữ nghĩa trong Qdrant, trả về các đoạn liên quan.
   - `POST /answer`: gọi `/search` lấy ngữ cảnh, sau đó gọi OpenAI Chat Completion để trả lời có trích dẫn nguồn.

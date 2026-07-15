@@ -44,7 +44,7 @@ qua volume `.:/app/project_data` đã có sẵn trong `docker-compose.yml` (khô
 việc mount, chỉ cần thêm biến môi trường trỏ đường dẫn).
 
 Output ghi vào `docs/imported/<ten_file>/<ten_file>.md` + `docs/imported/<ten_file>/images/*`. Vì
-`DOCS_GLOB` hiện tại (`docs/**/*.md`) là đệ quy, endpoint `/ingest` có sẵn sẽ tự động nhặt các file
+`DOCS_GLOB` hiện tại (`docs/imported/**/*.md`) là đệ quy, endpoint `/ingest` có sẵn sẽ tự động nhặt các file
 Markdown mới này khi được gọi lại — không cần sửa `knowledge_service` phần ingest/embedding.
 
 ## Data flow

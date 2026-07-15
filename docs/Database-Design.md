@@ -32,11 +32,11 @@ vector thực tế trả về từ model embedding — không cần migration th
 - `text`: một chunk văn bản, được `MarkdownTextSplitter` chia từ file gốc (`CHUNK_SIZE=1000`,
   `CHUNK_OVERLAP=100`, có thể override qua biến môi trường).
 - `source`: đường dẫn tuyệt đối tới file Markdown gốc (theo `DOCS_GLOB`, mặc định
-  `/app/project_data/docs/**/*.md`), dùng để trích dẫn nguồn khi trả lời (`/answer`).
+  `/app/project_data/docs/imported/**/*.md`), dùng để trích dẫn nguồn khi trả lời (`/answer`).
 
 ## Nguồn dữ liệu đầu vào
 
-Toàn bộ file `*.md` trong `docs/` (mount qua volume `.:/app/project_data` trong `docker-compose.yml`)
+Các file `*.md` trong `docs/imported/` (mount qua volume `.:/app/project_data` trong `docker-compose.yml`)
 là nguồn duy nhất được ingest. Khi PM/Tech Lead cập nhật tài liệu dự án, cần gọi lại `POST /ingest`
 để đồng bộ tri thức trong Qdrant — hệ thống không tự động theo dõi thay đổi file (không có watcher).
 
