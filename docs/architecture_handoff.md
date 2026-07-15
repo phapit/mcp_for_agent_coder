@@ -45,6 +45,44 @@ Chọn phương án 2. Lý do: giữ đúng ranh giới trách nhiệm đã đư
   và tải model embedding) — cần Pháp hoặc CI chạy smoke test thực tế theo Giai đoạn 3 của `AGENTS.md`.
 - `docs/Database-Design.md`, `Business-Rules.md`, `Coding-Convention.md`, `Postmortems.md` vẫn là placeholder rỗng.
 
+## 2026-07-15 — Chuyển sang xử lý event-driven với Kafka
+
+Đã xác nhận chuyển sang kiến trúc event-driven để tránh quá tải khi nhiều client đồng thời gửi yêu cầu.
+
+### Quyết định
+
+- Kafka chạy trong một Docker Compose khác để tiết kiệm tài nguyên máy phát triển.
+- Dùng Kafka thuần, chưa dùng Schema Registry.
+- Client nhận `job_id` và polling trạng thái job.
+- Không duy trì tương thích ngược với các endpoint ingest đồng bộ hiện tại.
+- Reranking sử dụng model local.
+- MongoDB là external dependency từ Compose khác; không bật MongoDB trong Compose hiện tại.
+
+### Các thành phần đã triển khai bước đầu
+
+- `services/knowledge_service/job_contracts.py`: contract versioned cho Kafka job event.
+- `services/knowledge_service/job_store.py`: state store tạm thời cho vòng đời job.
+- `services/knowledge_service/document_identity.py`: document ID, chunk ID và content hash ổn định.
+
+### Quy ước event dự kiến
+
+- `document.ingest.requested`
+- `document.ingest.completed`
+- `document.ingest.failed`
+- `document.ingest.retry`
+- `document.ingest.dlq`
+
+Delivery semantic dự kiến là **at-least-once**. Worker phải idempotent theo `job_id`, `document_id` và `content_hash`.
+
+### Việc còn lại
+
+- Tạo Kafka producer/consumer và worker pipeline.
+- Chuyển các pipeline ingest thành job bất đồng bộ.
+- Bổ sung readiness check cho Kafka, Qdrant và MongoDB external.
+- Hoàn thiện incremental upsert/delete trong Qdrant.
+- Bổ sung hybrid search, local reranking và citation theo heading/dòng.
+- Bổ sung integration test và adversarial test.
+
 ## 2026-07-15 Ổn định hóa NotebookLM theo project/env
 
 ### Phương án đã xem xét

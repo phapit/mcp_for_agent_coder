@@ -69,6 +69,17 @@ NotebookLM rất mạnh ở việc:
 
 ## Setup / Vận hành
 
+### Cấu hình API key cho script CLI
+
+Các script gọi API không lưu API key trong source. Cần cấu hình biến môi trường trước khi chạy:
+
+```bash
+export SERVICE_API_KEY="your-service-api-key"
+```
+
+Biến này được gửi qua header `X-API-Key` bởi `import_project_config.py` và
+`ingest_spreadsheet.py`. Nếu chưa cấu hình, script sẽ dừng với lỗi rõ ràng.
+
 ### Khởi động hệ thống
 ```
 docker compose up -d --build

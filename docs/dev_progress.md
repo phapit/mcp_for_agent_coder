@@ -53,3 +53,19 @@
 - Unit test:
   - `docker compose exec knowledge_service pytest tests/test_api_key_auth.py`: pass.
   - `docker compose exec agent_service pytest tests/test_api_key_auth.py`: pass.
+
+### 2026-07-15 — Kafka foundation và document identity
+- Chốt kiến trúc event-driven sử dụng Kafka ở Compose riêng.
+- Tạo `services/knowledge_service/job_contracts.py` với event schema version 1 và các trạng thái job.
+- Tạo `services/knowledge_service/job_store.py` để quản lý state job bước đầu.
+- Tạo `services/knowledge_service/document_identity.py` với document ID, chunk ID và content hash ổn định.
+- Unit test: `2 passed` cho job contract/store và `3 passed` cho document identity.
+- Smoke test: `python3 -m py_compile` pass.
+- Chưa triển khai Kafka worker thực tế trong task này.
+
+### 2026-07-15 — Loại bỏ API key hardcode khỏi CLI scripts
+- Sửa `scripts/import_project_config.py` và `scripts/ingest_spreadsheet.py`.
+- Hai script đọc `SERVICE_API_KEY` từ environment và gửi qua header `X-API-Key`.
+- Khi thiếu biến môi trường, script trả lỗi rõ ràng và exit code `2`.
+- Smoke test compile pass.
+- Smoke test thiếu `SERVICE_API_KEY`: cả hai script trả exit code `2` đúng kỳ vọng.

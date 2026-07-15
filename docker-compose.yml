@@ -61,6 +61,7 @@ services:
       - ollama
     networks:
       - ai_agent_net
+      - shared_network
 
   agent_service:
     build:
@@ -74,13 +75,17 @@ services:
       - .env
     volumes:
       - .:/app/project_data
-      - /var/run/docker.sock:/var/run/docker.sock # Nếu cần tương tác với Docker
+    #  - /var/run/docker.sock:/var/run/docker.sock # Nếu cần tương tác với Docker
     depends_on:
       - qdrant
       - knowledge_service
     networks:
       - ai_agent_net
+      - shared_network
 
 networks:
   ai_agent_net:
     driver: bridge
+  shared_network:
+    external: true
+    name: docker_global_bridge

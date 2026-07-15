@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import sys
 from urllib import error, request
 
@@ -31,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    service_api_key = os.getenv("SERVICE_API_KEY", "").strip()
+    if not service_api_key:
+        print("Ingest failed: SERVICE_API_KEY environment variable is not configured.", file=sys.stderr)
+        return 2
     payload = {
         "project_name": args.project_name,
         "notebook_env": args.notebook_env,
@@ -42,7 +47,7 @@ def main() -> int:
     req = request.Request(
         endpoint,
         data=body,
-        headers={"Content-Type": "application/json", "X-API-Key": "ZW50X3NlcnZpY2UgcHl0ZXN0IHRlc3RzL3Rlc3RfYXBpX2tleV9hdXRoLnB5OiAzIHBhcw"},
+        headers={"Content-Type": "application/json", "X-API-Key": service_api_key},
         method="POST",
     )
 

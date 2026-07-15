@@ -1,5 +1,22 @@
 # Test Report
 
+### 2026-07-15 — Kafka foundation, document identity và CLI API key
+- Phạm vi:
+  - `services/knowledge_service/job_contracts.py`
+  - `services/knowledge_service/job_store.py`
+  - `services/knowledge_service/document_identity.py`
+  - `services/knowledge_service/tests/test_job_contracts.py`
+  - `services/knowledge_service/tests/test_document_identity.py`
+  - `scripts/import_project_config.py`
+  - `scripts/ingest_spreadsheet.py`
+- Unit test:
+  - Job contract/store: `2 passed`.
+  - Document identity: `3 passed`.
+- Smoke test:
+  - `python3 -m py_compile`: pass.
+  - Thiếu `SERVICE_API_KEY` ở hai CLI script: exit code `2`, thông báo lỗi đúng kỳ vọng.
+- Adversarial/integration test Kafka: chưa thực hiện; Kafka nằm ở Compose riêng và worker chưa hoàn tất.
+
 ### 2026-07-15 21:xx
 - Phạm vi:
   - `services/knowledge_service/project_config_store.py`
