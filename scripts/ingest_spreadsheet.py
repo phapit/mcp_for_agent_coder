@@ -7,7 +7,6 @@ import os
 import sys
 from urllib import error, request
 
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Ingest a spreadsheet through knowledge_service."
@@ -16,9 +15,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("notebook_env", help="Notebook environment, for example: env_a")
     parser.add_argument("spreadsheet_id", help="Google Spreadsheet file ID")
     parser.add_argument("output_name", help="Markdown output filename, for example: sales.md")
+    basePort = f"{os.getenv('VIRTUAL_PORT', '8000').strip()}" 
+    baseUrl = f"http://{os.getenv('VIRTUAL_HOST', 'localhost').strip()}:{basePort}"
+    print(f"Debug: {baseUrl}")
     parser.add_argument(
         "--base-url",
-        default="http://localhost:8000",
+        default=baseUrl,
         help="knowledge_service base URL. Default: http://localhost:8000",
     )
     parser.add_argument(

@@ -10,6 +10,10 @@ class NotebookLMError(RuntimeError):
     """Raised when a NotebookLM CLI operation fails."""
 
 
+class NotebookLMRateLimitError(NotebookLMError):
+    """Raised when NotebookLM throttles an RPC request."""
+
+
 @dataclass(frozen=True)
 class NotebookLMResult:
     output_md: str
@@ -56,6 +60,8 @@ class NotebookLMService:
                     os.environ["NOTEBOOKLM_AUTH_JSON"] = previous_auth_json
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
+            if "RateLimitError" in detail or "rate limit" in detail.lower():
+                raise NotebookLMRateLimitError(detail or "NotebookLM rate limit reached.")
             raise NotebookLMError(detail or f"NotebookLM command failed: {' '.join(command)}")
         if not json_output:
             return {}
@@ -63,6 +69,39 @@ class NotebookLMService:
             return json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise NotebookLMError("NotebookLM returned invalid JSON.") from exc
+
+    @staticmethod
+    def _items(payload: dict, *keys: str) -> list[dict]:
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        return []
+
+    def _find_source(self, spreadsheet_id: str) -> str | None:
+        payload = self._run(["source", "list", "-n", self.notebook_id], json_output=True)
+        needle = spreadsheet_id.lower()
+        for item in self._items(payload, "sources", "items", "data"):
+            serialized = json.dumps(item, ensure_ascii=False).lower()
+            if needle in serialized:
+                source_id = item.get("id") or item.get("source_id")
+                if source_id:
+                    return str(source_id)
+        return None
+
+    def _find_report(self, spreadsheet_id: str, output_name: str) -> str | None:
+        payload = self._run(
+            ["artifact", "list", "--type", "report", "-n", self.notebook_id],
+            json_output=True,
+        )
+        needle_values = (spreadsheet_id.lower(), output_name.lower())
+        for item in self._items(payload, "artifacts", "items", "data"):
+            serialized = json.dumps(item, ensure_ascii=False).lower()
+            if any(needle in serialized for needle in needle_values):
+                artifact_id = item.get("id") or item.get("artifact_id")
+                if artifact_id:
+                    return str(artifact_id)
+        return None
 
     def process_spreadsheet(self, spreadsheet_id: str, output_name: str) -> NotebookLMResult:
         if not self.notebook_id:
@@ -72,33 +111,37 @@ class NotebookLMService:
         if not spreadsheet_id.strip():
             raise NotebookLMError("spreadsheet_id must not be empty.")
 
-        source = self._run(
-            [
-                "source",
-                "add-drive",
-                spreadsheet_id,
-                output_name,
-                "--mime-type",
-                "google-sheets",
-                "-n",
-                self.notebook_id,
-            ],
-            json_output=True,
-        )
-        source_id = source.get("source", {}).get("id")
+        source_id = self._find_source(spreadsheet_id)
+        if not source_id:
+            source = self._run(
+                [
+                    "source",
+                    "add-drive",
+                    spreadsheet_id,
+                    output_name,
+                    "--mime-type",
+                    "google-sheets",
+                    "-n",
+                    self.notebook_id,
+                ],
+                json_output=True,
+            )
+            source_id = source.get("source", {}).get("id")
         if source_id:
             self._run(["source", "wait", source_id, "--timeout", "120", "-n", self.notebook_id])
 
-        artifact = self._run(
-            ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id],
-            json_output=True,
-        )
-        artifact_id = (
-            artifact.get("artifact", {}).get("id")
-            or artifact.get("artifact_id")
-            or artifact.get("task_id")
-            or artifact.get("task", {}).get("id")
-        )
+        artifact_id = self._find_report(spreadsheet_id, output_name)
+        if not artifact_id:
+            artifact = self._run(
+                ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id, "--no-wait"],
+                json_output=True,
+            )
+            artifact_id = (
+                artifact.get("artifact", {}).get("id")
+                or artifact.get("artifact_id")
+                or artifact.get("task_id")
+                or artifact.get("task", {}).get("id")
+            )
         if not artifact_id:
             raise NotebookLMError("NotebookLM report response did not include an artifact id.")
 

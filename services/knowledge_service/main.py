@@ -18,7 +18,7 @@ from pymongo import MongoClient
 import excel_ingest
 import manifest as manifest_store
 import vision
-from notebooklm_service import NotebookLMError, NotebookLMService
+from notebooklm_service import NotebookLMError, NotebookLMRateLimitError, NotebookLMService
 from project_config_store import ProjectConfigError, ProjectConfigStore
 
 logging.basicConfig(level=logging.INFO)
@@ -412,6 +412,9 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
     )
     try:
         result = service.process_spreadsheet(request.spreadsheet_id, request.output_name)
+    except NotebookLMRateLimitError as exc:
+        logger.warning("NotebookLM rate limit; job can be resumed without creating a duplicate: %s", exc)
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     except NotebookLMError as exc:
         logger.error("NotebookLM spreadsheet ingestion failed: %s", exc)
         status_code = 503 if "not configured" in str(exc) else 502

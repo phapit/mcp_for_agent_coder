@@ -198,6 +198,27 @@ python3 scripts/clear_knowledge_database.py --yes
 
 Có thể truyền URI và database khác bằng `--mongodb-uri` và `--database`. Thao tác này
 không xóa collection trên Qdrant, file Markdown, manifest hoặc auth JSON.
+
+## Resume source/artifact và xử lý rate limit
+
+Luồng `POST /ingest-spreadsheet` kiểm tra dữ liệu NotebookLM trước khi tạo mới:
+
+1. Gọi `source list --json` và tái sử dụng source đã tồn tại theo Spreadsheet ID.
+2. Gọi `artifact list --type report --json` và tái sử dụng report phù hợp theo Spreadsheet ID hoặc tên output.
+3. Chỉ gọi `source add-drive` hoặc `generate report` khi chưa tìm thấy dữ liệu phù hợp.
+4. Dùng `artifact wait` trước khi download report.
+5. Nếu NotebookLM trả `RateLimitError`, API trả HTTP `429`; client không tạo lại source/artifact ngay lập tức.
+6. Gọi lại request sau đó sẽ kiểm tra lại source/artifact và tiếp tục download artifact đã được tạo trước đó.
+
+Các lệnh CLI được sử dụng dựa trên `docs/notebooklm-py/notebooklm-cli-reference.md`:
+
+- `source list --json`
+- `artifact list --type report --json`
+- `source wait`
+- `artifact wait`
+- `download report --artifact`
+
+Flow hiện tại resume bằng source/artifact ID của NotebookLM ở lần gọi kế tiếp; API polling `job_id` độc lập sẽ được bổ sung khi pipeline background worker/Kafka hoàn tất.
 - `services/knowledge_service/tests/test_notebooklm_service.py`: unit test
   adapter với response `artifact_id` và `task_id`.
 - `services/knowledge_service/tests/test_project_config_store.py`: unit test repository config.

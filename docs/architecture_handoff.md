@@ -83,6 +83,18 @@ Delivery semantic dự kiến là **at-least-once**. Worker phải idempotent th
 - Bổ sung hybrid search, local reranking và citation theo heading/dòng.
 - Bổ sung integration test và adversarial test.
 
+## 2026-07-15 — NotebookLM resume sau RateLimitError
+
+`NotebookLMService` đã được cập nhật theo CLI reference:
+
+- Kiểm tra source bằng `source list --json` trước khi gọi `source add-drive`.
+- Kiểm tra report bằng `artifact list --type report --json` trước khi gọi `generate report`.
+- Dùng lại source/artifact đã tồn tại.
+- Chờ artifact bằng `artifact wait` rồi mới download.
+- `RateLimitError` không được retry ngay; endpoint trả HTTP `429` để client gọi lại sau.
+
+Điều này xử lý trường hợp NotebookLM đã tạo artifact nhưng client nhận lỗi rate limit ở bước RPC tiếp theo. API polling `job_id` riêng vẫn thuộc phase Kafka background worker, chưa triển khai trong thay đổi này.
+
 ## 2026-07-15 Ổn định hóa NotebookLM theo project/env
 
 ### Phương án đã xem xét

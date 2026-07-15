@@ -69,3 +69,12 @@
 - Khi thiếu biến môi trường, script trả lỗi rõ ràng và exit code `2`.
 - Smoke test compile pass.
 - Smoke test thiếu `SERVICE_API_KEY`: cả hai script trả exit code `2` đúng kỳ vọng.
+
+### 2026-07-15 — NotebookLM resume artifact và chống tạo trùng
+- `NotebookLMService` kiểm tra `source list --json` trước `source add-drive`.
+- Kiểm tra `artifact list --type report --json` trước `generate report`.
+- Tái sử dụng source/artifact đã tồn tại và dùng `artifact wait` trước khi download.
+- Phân loại `RateLimitError` thành `NotebookLMRateLimitError`.
+- Endpoint `/ingest-spreadsheet` trả HTTP `429` khi NotebookLM rate limit, không retry ngay.
+- Bổ sung unit test cho source/artifact reuse.
+- Unit test NotebookLM: `6 passed`.

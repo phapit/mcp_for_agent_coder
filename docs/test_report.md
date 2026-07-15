@@ -17,6 +17,17 @@
   - Thiếu `SERVICE_API_KEY` ở hai CLI script: exit code `2`, thông báo lỗi đúng kỳ vọng.
 - Adversarial/integration test Kafka: chưa thực hiện; Kafka nằm ở Compose riêng và worker chưa hoàn tất.
 
+### 2026-07-15 — NotebookLM artifact reuse và rate limit
+- Phạm vi:
+  - `services/knowledge_service/notebooklm_service.py`
+  - `services/knowledge_service/main.py`
+  - `services/knowledge_service/tests/test_notebooklm_service.py`
+- Unit test: `6 passed`.
+- Đã kiểm thử source/artifact đã tồn tại không tạo mới.
+- Đã phân loại `RateLimitError` thành HTTP `429`.
+- Smoke test `py_compile`: pass.
+- Chưa có integration test trực tiếp với NotebookLM production account.
+
 ### 2026-07-15 21:xx
 - Phạm vi:
   - `services/knowledge_service/project_config_store.py`

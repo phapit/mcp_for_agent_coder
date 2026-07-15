@@ -37,7 +37,7 @@ services:
       context: ./services/knowledge_service
     container_name: knowledge_service
     ports:
-      - "8000:8000"
+      - "8002"
     environment:
       - SERVICE_API_KEY=${SERVICE_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -52,6 +52,11 @@ services:
       - NOTEBOOKLM_AUTH_DIR=/app/project_data/notebooklm_auth
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:2017}
       - MONGODB_DB_NAME=${MONGODB_DB_NAME:-knowledge_service}
+      - VIRTUAL_HOST=knowledge-api.mcp.local
+      - VIRTUAL_PROTO=http
+      - VIRTUAL_PORT=8002
+      - HTTPS_METHOD=noredirect
+      - CERT_NAME=default.local
     env_file:
       - .env
     volumes:
@@ -68,14 +73,18 @@ services:
       context: ./services/agent_service
     container_name: agent_service
     ports:
-      - "8001:8001"
+      - "8003"
     environment:
       - SERVICE_API_KEY=${SERVICE_API_KEY}
+      - VIRTUAL_HOST=agent-api.mcp.local
+      - VIRTUAL_PROTO=http
+      - VIRTUAL_PORT=8003
+      - HTTPS_METHOD=noredirect
+      - CERT_NAME=default.local
     env_file:
       - .env
     volumes:
       - .:/app/project_data
-    #  - /var/run/docker.sock:/var/run/docker.sock # Nếu cần tương tác với Docker
     depends_on:
       - qdrant
       - knowledge_service

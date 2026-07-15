@@ -14,9 +14,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("notebook_env", help="Notebook environment, for example: env_a")
     parser.add_argument("notebook_id", help="NotebookLM notebook ID")
     parser.add_argument("notebooklm_auth_name", help="Auth JSON filename, for example: team-a.json")
+    basePort = f"{os.getenv('VIRTUAL_PORT', '8000').strip()}" 
+    baseUrl = f"http://{os.getenv('VIRTUAL_HOST', 'localhost').strip()}:{basePort}"
     parser.add_argument(
         "--base-url",
-        default="http://localhost:8000",
+        default=baseUrl,
         help="knowledge_service base URL. Default: http://localhost:8000",
     )
     return parser
