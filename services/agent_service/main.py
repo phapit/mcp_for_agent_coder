@@ -1,9 +1,11 @@
 import os
 import logging
+import secrets
 
 import httpx
 import git
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
@@ -12,6 +14,9 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 PROJECT_PATH = os.getenv("PROJECT_PATH", "/app/project_data")
 KNOWLEDGE_SERVICE_URL = os.getenv("KNOWLEDGE_SERVICE_URL", "http://knowledge_service:8000")
+SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "").strip()
+API_KEY_HEADER = "X-API-Key"
+EXEMPT_PATHS = {"/health"}
 
 # --- Initialize Global Objects ---
 try:
@@ -26,6 +31,20 @@ except Exception as e:
 app = FastAPI(title="AI Developer Agent Service")
 
 
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if request.url.path in EXEMPT_PATHS:
+        return await call_next(request)
+    if not SERVICE_API_KEY:
+        logger.error("SERVICE_API_KEY is not configured for agent_service.")
+        return JSONResponse(status_code=503, content={"detail": "SERVICE_API_KEY is not configured."})
+
+    provided_key = request.headers.get(API_KEY_HEADER, "")
+    if not secrets.compare_digest(provided_key, SERVICE_API_KEY):
+        return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key."})
+    return await call_next(request)
+
+
 class BranchName(BaseModel):
     name: str = Field(..., description="The name of the new git branch.", pattern=r"^[a-zA-Z0-9._-]+$")
 
@@ -33,6 +52,11 @@ class BranchName(BaseModel):
 class ConsultQuery(BaseModel):
     question: str
     limit: int = 3
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "agent_service"}
 
 
 @app.get("/")
@@ -98,6 +122,7 @@ async def consult_knowledge_base(query: ConsultQuery):
             response = await client.post(
                 f"{KNOWLEDGE_SERVICE_URL}/answer",
                 json={"question": query.question, "limit": query.limit},
+                headers={API_KEY_HEADER: SERVICE_API_KEY} if SERVICE_API_KEY else {},
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:

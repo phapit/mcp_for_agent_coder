@@ -2,9 +2,11 @@ import os
 import glob
 import logging
 import tempfile
+import secrets
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from langchain_text_splitters import MarkdownTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -41,6 +43,9 @@ NOTEBOOKLM_AUTH_DIR = os.getenv("NOTEBOOKLM_AUTH_DIR", "/app/project_data/notebo
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://mongodb:27017")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "knowledge_service")
 MONGODB_COLLECTION_NAME = os.getenv("MONGODB_COLLECTION_NAME", "project_notebook_configs")
+SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "").strip()
+API_KEY_HEADER = "X-API-Key"
+EXEMPT_PATHS = {"/health"}
 
 # --- Initialize Global Objects ---
 try:
@@ -62,6 +67,20 @@ except Exception as e:
 app = FastAPI(title="Knowledge Curator Service")
 
 splitter = MarkdownTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if request.url.path in EXEMPT_PATHS:
+        return await call_next(request)
+    if not SERVICE_API_KEY:
+        logger.error("SERVICE_API_KEY is not configured for knowledge_service.")
+        return JSONResponse(status_code=503, content={"detail": "SERVICE_API_KEY is not configured."})
+
+    provided_key = request.headers.get(API_KEY_HEADER, "")
+    if not secrets.compare_digest(provided_key, SERVICE_API_KEY):
+        return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key."})
+    return await call_next(request)
 
 
 class SearchQuery(BaseModel):
@@ -176,6 +195,11 @@ def _load_notebook_auth_json(auth_name: str) -> str:
 
 def _project_output_dir(project_name: str) -> str:
     return str(Path(NOTEBOOKLM_OUTPUT_DIR) / project_name)
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "service": "knowledge_service"}
 
 
 @app.get("/")

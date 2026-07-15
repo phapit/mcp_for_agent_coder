@@ -23,3 +23,33 @@ Kết quả test:
   - `python -m py_compile` sẽ được chạy sau khi hoàn tất patch.
   - `pytest` sẽ được chạy nếu môi trường local hiện tại có đủ dependency.
 - Chưa có adversarial test subagent độc lập trong phiên này.
+
+### 2026-07-15 12:25
+- Phạm vi:
+  - `services/knowledge_service/main.py`
+  - `services/agent_service/main.py`
+  - `services/knowledge_service/tests/test_api_key_auth.py`
+  - `services/agent_service/tests/test_api_key_auth.py`
+  - `docker-compose.yml`
+  - `.env`
+- Bug phát hiện trong lúc phát triển: 2
+- Bug đã sửa: 2
+
+Chi tiết:
+- Lỗi 1: Toàn bộ API chưa có lớp bảo vệ chung bằng key.
+  - Root cause: service chỉ dùng API key cho provider AI, chưa có auth guard ở biên API FastAPI.
+  - Cách sửa: thêm middleware `X-API-Key` dùng chung với biến môi trường `SERVICE_API_KEY`, miễn trừ `/health`.
+- Lỗi 2: `agent_service` khi gọi nội bộ sang `knowledge_service` sẽ bị chặn nếu không forward shared key.
+  - Root cause: proxy `/consult` trước đó chỉ forward JSON body, chưa truyền credential nội bộ.
+  - Cách sửa: thêm header `X-API-Key` khi `agent_service` gọi `knowledge_service`.
+
+Kết quả test:
+- Unit test:
+  - `docker compose exec knowledge_service pytest tests/test_api_key_auth.py`: 3 passed.
+  - `docker compose exec agent_service pytest tests/test_api_key_auth.py`: 3 passed.
+- Smoke test local:
+  - `docker compose up -d --build knowledge_service agent_service`: pass.
+  - `curl http://127.0.0.1:8000/health`: `200 OK`.
+  - `curl http://127.0.0.1:8001/health`: `200 OK`.
+  - `curl http://127.0.0.1:8001/`: `503 SERVICE_API_KEY is not configured.` đúng kỳ vọng với `.env` hiện đang để trống.
+- Chưa có adversarial test subagent độc lập trong phiên này.

@@ -39,3 +39,17 @@
 - Lưu Markdown và manifest theo sub-directory `docs/imported/<project_name>/`.
 - Thêm unit test cho `ProjectConfigStore` và cập nhật test `NotebookLMService` cho auth JSON bắt buộc.
 - Thêm script CLI `scripts/import_project_config.py` để import nhanh cấu hình project/env khi chưa có UI.
+
+### 2026-07-15 12:25 — Shared API Key Guard
+- Task `Shared API Key Config - Task 1`: thêm `SERVICE_API_KEY` vào `.env` và truyền vào `knowledge_service`, `agent_service` qua `docker-compose.yml`.
+- Task `Knowledge Service Auth Guard - Task 2`: thêm middleware kiểm tra header `X-API-Key` cho toàn bộ endpoint của `knowledge_service`, miễn trừ `/health`.
+- Task `Agent Service Auth Guard - Task 3`: thêm middleware kiểm tra header `X-API-Key` cho toàn bộ endpoint của `agent_service`, miễn trừ `/health`.
+- Task `API Key Verification Tests - Task 4`: thêm test API cho 2 service và bổ sung `pytest` vào `services/agent_service/requirements.txt`.
+- Smoke test:
+  - `docker compose up -d --build knowledge_service agent_service`: pass.
+  - `curl http://127.0.0.1:8000/health`: pass.
+  - `curl http://127.0.0.1:8001/health`: pass.
+  - `curl http://127.0.0.1:8001/`: trả `503` đúng kỳ vọng khi `SERVICE_API_KEY` chưa được điền trong `.env`.
+- Unit test:
+  - `docker compose exec knowledge_service pytest tests/test_api_key_auth.py`: pass.
+  - `docker compose exec agent_service pytest tests/test_api_key_auth.py`: pass.

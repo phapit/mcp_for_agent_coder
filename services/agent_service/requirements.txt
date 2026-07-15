@@ -3,3 +3,4 @@ uvicorn
 GitPython
 httpx
 python-dotenv
+pytest
