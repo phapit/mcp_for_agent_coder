@@ -253,15 +253,15 @@ def search_documents(search_query: SearchQuery) -> list:
         raise HTTPException(status_code=503, detail="Embeddings model or Qdrant client is not available.")
 
     query_vector = embeddings.embed_query(search_query.query)
-    results = qdrant_client.search(
+    results = qdrant_client.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=query_vector,
+        query=query_vector,
         limit=search_query.limit,
     )
 
     return [
         {"text": r.payload.get("text"), "source": r.payload.get("source"), "score": r.score}
-        for r in results
+        for r in results.points
     ]
 
 

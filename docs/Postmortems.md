@@ -5,6 +5,18 @@ theo [[Business-Rules]] ("không bao giờ lặp lại cùng một bug").
 
 ---
 
+## 2026-07-15 — Câu hỏi Session cần đủ ngữ cảnh
+
+**Hiện tượng**: Với câu hỏi ngắn `Session tồn tại tối đa bao nhiêu ngày?`, `/answer` có thể trả lời không biết. Khi bổ sung ngữ cảnh rõ ràng như `Session duration 28 days guest registered users`, service trả lời đúng `28 ngày`.
+
+**Kết luận**: Đây không phải lỗi của Qdrant, Ollama hay dữ liệu tài liệu. Nguyên nhân là câu hỏi của End User chưa đủ ngữ cảnh để semantic search chọn đúng đoạn liên quan.
+
+**Lưu ý vận hành**: Trước khi thay đổi embedding, retrieval, `limit` hoặc nâng model, cần thử lại bằng câu hỏi có thêm thuật ngữ và phạm vi nghiệp vụ. Chỉ xem xét sửa hệ thống khi câu hỏi đã rõ nhưng `/search` vẫn không trả về chunk chứa câu trả lời.
+
+**Trạng thái**: Không thay đổi code; ghi nhận như một lưu ý về chất lượng prompt của End User.
+
+---
+
 ## 2026-07-14 — `docker-compose.yml` tham chiếu thư mục service không tồn tại
 
 **Sự cố**: `docker-compose.yml` định nghĩa build context `./services/knowledge_service` và
