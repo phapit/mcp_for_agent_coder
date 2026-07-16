@@ -21,6 +21,30 @@ const routes = [
     meta: { title: 'Tình trạng task' },
   },
   {
+    path: '/answer',
+    name: 'answer',
+    component: () => import('@/views/AnswerView.vue'),
+    meta: { title: 'Hỏi đáp (RAG)' },
+  },
+  {
+    path: '/search',
+    name: 'search',
+    component: () => import('@/views/SearchView.vue'),
+    meta: { title: 'Tìm kiếm ngữ cảnh' },
+  },
+  {
+    path: '/ingest-excel',
+    name: 'ingest-excel',
+    component: () => import('@/views/IngestExcelView.vue'),
+    meta: { title: 'Ingest Excel' },
+  },
+  {
+    path: '/ingest-spreadsheet',
+    name: 'ingest-spreadsheet',
+    component: () => import('@/views/IngestSpreadsheetView.vue'),
+    meta: { title: 'Ingest Spreadsheet' },
+  },
+  {
     path: '/logs',
     name: 'logs',
     component: () => import('@/views/ActivityLogView.vue'),

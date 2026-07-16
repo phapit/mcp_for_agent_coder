@@ -99,6 +99,19 @@ export const api = {
   search: (payload) => kn('/search', { method: 'POST', body: payload }),
   answer: (payload) => kn('/answer', { method: 'POST', body: payload }),
 
+  // ---- Ingest chuyên biệt (Excel / Spreadsheet) ----
+  ingestExcel: (payload) => kn('/ingest-excel', { method: 'POST', body: payload }),
+  ingestExcelUpload: (file, useOnlineModel = 0) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return kn('/ingest-excel/upload', {
+      method: 'POST',
+      body: fd,
+      query: { use_online_model: useOnlineModel },
+    })
+  },
+  ingestSpreadsheet: (payload) => kn('/ingest-spreadsheet', { method: 'POST', body: payload }),
+
   // ---- Git (agent_service) ----
   gitStatus: () => ag('/git/status'),
   createBranch: (name) => ag('/git/branch', { method: 'POST', body: { name } }),

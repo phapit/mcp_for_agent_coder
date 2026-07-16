@@ -29,6 +29,10 @@ const nav = [
   { to: '/dashboard', label: 'Tổng quan', ico: '◧' },
   { to: '/projects', label: 'Quản lý dự án', ico: '❖' },
   { to: '/tasks', label: 'Tình trạng task', ico: '⟳' },
+  { to: '/answer', label: 'Hỏi đáp (RAG)', ico: '✦' },
+  { to: '/search', label: 'Tìm kiếm ngữ cảnh', ico: '🔍' },
+  { to: '/ingest-excel', label: 'Ingest Excel', ico: '▤' },
+  { to: '/ingest-spreadsheet', label: 'Ingest Spreadsheet', ico: '▦' },
   { to: '/logs', label: 'Log hoạt động', ico: '☰' },
 ]
 </script>
