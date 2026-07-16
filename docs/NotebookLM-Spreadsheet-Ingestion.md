@@ -198,7 +198,7 @@ Field:
 
 | Field | Bắt buộc | Mô tả |
 |---|---|---|
-| `prompt` | có | Yêu cầu tự do, truyền thẳng vào `generate report [prompt]` của NotebookLM CLI. |
+| `prompt` | có | Yêu cầu tự do, truyền thẳng vào `generate report [prompt]` của NotebookLM CLI. Tối đa **1024 ký tự** (422 nếu vượt). |
 | `output_name` | không (mặc định `custom-report.md`) | Tên file `.md` đơn giản, không chứa path. |
 | `format` | không (mặc định `custom`) | `briefing-doc` \| `study-guide` \| `blog-post` \| `custom`. Với `custom`, prompt là toàn quyền chỉ dẫn nội dung; các định dạng còn lại dùng template có sẵn của NotebookLM, prompt chỉ override phần mô tả mở đầu. |
 | `append` | không | Chỉ có tác dụng khi `format != custom` — thêm chỉ dẫn bổ sung vào template có sẵn. |

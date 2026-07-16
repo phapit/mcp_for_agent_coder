@@ -333,6 +333,8 @@ class NotebookReportRequest(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("prompt must not be empty.")
+        if len(value) > 1024:
+            raise ValueError(f"prompt must not exceed 1024 characters (got {len(value)}).")
         return value
 
     @field_validator("format")

@@ -33,6 +33,8 @@ const LANGUAGES = [
   { code: 'fr', label: 'Français (fr)' },
 ]
 
+const PROMPT_MAX_LENGTH = 1024
+
 const projects = ref([]) // [{ project_name, configs:[{notebook_env,...}] }]
 const loadingProjects = ref(false)
 const submitting = ref(false)
@@ -62,6 +64,10 @@ function onProjectChange() {
 async function submit() {
   if (!form.project_name || !form.notebook_env || !form.prompt.trim()) {
     toast.error('Cần chọn dự án, environment và nhập yêu cầu (prompt).')
+    return
+  }
+  if (form.prompt.trim().length > PROMPT_MAX_LENGTH) {
+    toast.error(`Yêu cầu (prompt) vượt quá ${PROMPT_MAX_LENGTH} ký tự (hiện ${form.prompt.trim().length}).`)
     return
   }
   submitting.value = true
@@ -118,10 +124,14 @@ onMounted(loadProjects)
     </div>
 
     <label class="field">
-      <span class="field-label">Yêu cầu (prompt)</span>
+      <span class="field-label row spread">
+        <span>Yêu cầu (prompt)</span>
+        <span class="faint">{{ form.prompt.length }}/{{ PROMPT_MAX_LENGTH }}</span>
+      </span>
       <textarea
         v-model="form.prompt"
         rows="4"
+        maxlength="1024"
         placeholder='vd: "Mô tả chi tiết logic hoạt động của button A"'
         @keydown.ctrl.enter="submit"
       />

@@ -109,3 +109,9 @@
 - Unit test: 6 test mới trong `test_notebooklm_service.py` (generate/wait/download, truyền format+language+append, append bị bỏ qua khi format=custom, validate prompt/notebook_id) — 13 passed.
 - Validation qua HTTP thật: format sai → 422, project không tồn tại → 404, prompt rỗng → 422. Chưa gọi NotebookLM thật (tránh tốn quota/tạo artifact thật không cần thiết).
 - Tài liệu: thêm mục trong `docs/NotebookLM-Spreadsheet-Ingestion.md`, cập nhật README.md.
+
+### 2026-07-16 — Giới hạn độ dài prompt cho /notebook-reports (tối đa 1024 ký tự)
+- `NotebookReportRequest.validate_prompt` (main.py) chặn prompt > 1024 ký tự, trả 422 kèm số ký tự thực tế.
+- Frontend: `maxlength="1024"` trên textarea + bộ đếm ký tự + kiểm tra lại trước khi submit.
+- Unit test: `test_notebook_report_request.py` (mới) — chấp nhận đúng 1024, từ chối 1025, endpoint trả 422 qua TestClient — 3 passed.
+- Xác nhận qua HTTP thật: 1025 ký tự → 422 đúng thông báo; 1024 ký tự qua được validate (tiếp tục xử lý bình thường).
