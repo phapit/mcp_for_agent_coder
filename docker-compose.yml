@@ -41,12 +41,12 @@ services:
       context: ./services/knowledge_service
     container_name: knowledge_service
     ports:
-      - "8002"
+      - "${KNOWLEDGE_SERVICE_PORT:-8002}"
     environment:
       - SERVICE_API_KEY=${SERVICE_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=http://wiki-ollama:11434/v1
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2:7b}
       - VISION_PROVIDER=${VISION_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4o}
@@ -57,6 +57,7 @@ services:
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:2017}
       - MONGODB_DB_NAME=${MONGODB_DB_NAME:-knowledge_service}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-120}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-20}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - ENVIRONMENT=${ENVIRONMENT:-local}
@@ -69,9 +70,9 @@ services:
       - PROMPT_VERSION=${PROMPT_VERSION:-v2}
       - AUTO_INGEST_AFTER_EXPORT=${AUTO_INGEST_AFTER_EXPORT:-1}
       - SESSION_CONTEXT_TURNS=${SESSION_CONTEXT_TURNS:-5}
-      - VIRTUAL_HOST=knowledge-api.mcp.local
+      - VIRTUAL_HOST=${KNOWLEDGE_SERVICE_HOST:-knowledge-api.mcp.local}
       - VIRTUAL_PROTO=http
-      - VIRTUAL_PORT=8002
+      - VIRTUAL_PORT=${KNOWLEDGE_SERVICE_PORT:-8002}
       - HTTPS_METHOD=noredirect
       - CERT_NAME=default.local
     env_file:
@@ -79,7 +80,7 @@ services:
     volumes:
       - .:/app/project_data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health/ready', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${KNOWLEDGE_SERVICE_PORT:-8002}/health/ready', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -96,15 +97,16 @@ services:
       context: ./services/agent_service
     container_name: agent_service
     ports:
-      - "8003"
+      - "${AGENT_SERVICE_PORT:-8003}"
     environment:
       - SERVICE_API_KEY=${SERVICE_API_KEY}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-120}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
-      - KNOWLEDGE_SERVICE_URL=http://knowledge_service:8002
-      - VIRTUAL_HOST=agent-api.mcp.local
+      - KNOWLEDGE_SERVICE_URL=http://knowledge_service:${KNOWLEDGE_SERVICE_PORT:-8002}
+      - VIRTUAL_HOST=${AGENT_SERVICE_HOST:-agent-api.mcp.local}
       - VIRTUAL_PROTO=http
-      - VIRTUAL_PORT=8003
+      - VIRTUAL_PORT=${AGENT_SERVICE_PORT:-8003}
       - HTTPS_METHOD=noredirect
       - CERT_NAME=default.local
     env_file:
@@ -112,7 +114,7 @@ services:
     volumes:
       - .:/app/project_data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health/ready', timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${AGENT_SERVICE_PORT:-8003}/health/ready', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -11,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-logging.basicConfig(level=logging.INFO)
+import observability
+
+observability.setup_logging("agent_service")
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
@@ -91,6 +93,29 @@ async def limit_request_rate(request: Request, call_next):
             headers={"Retry-After": str(int(60 - (now - window_start)) + 1)},
         )
     return await call_next(request)
+
+
+# Registered last so it wraps every other middleware: the correlation ID is set
+# before auth/rate-limit code runs and therefore appears on all their log lines.
+@app.middleware("http")
+async def correlate_and_log_request(request: Request, call_next):
+    correlation_id = observability.set_correlation_id(
+        request.headers.get(observability.REQUEST_ID_HEADER)
+    )
+    started = time.perf_counter()
+    response = await call_next(request)
+    response.headers[observability.REQUEST_ID_HEADER] = correlation_id
+    if request.url.path not in EXEMPT_PATHS:  # health probes would flood the log
+        logger.info(
+            "http_request",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": observability.duration_ms(started),
+            },
+        )
+    return response
 
 
 class BranchName(BaseModel):
@@ -186,12 +211,17 @@ async def consult_knowledge_base(query: ConsultQuery):
     Proxies a question to the Knowledge Curator service so the agent can
     ground its actions in the project's canonical documentation before coding.
     """
+    headers = {API_KEY_HEADER: SERVICE_API_KEY} if SERVICE_API_KEY else {}
+    correlation_id = observability.get_correlation_id()
+    if correlation_id:
+        # Propagate the correlation ID so both services' logs share one trace key.
+        headers[observability.REQUEST_ID_HEADER] = correlation_id
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
             response = await client.post(
                 f"{KNOWLEDGE_SERVICE_URL}/answer",
                 json={"question": query.question, "limit": query.limit},
-                headers={API_KEY_HEADER: SERVICE_API_KEY} if SERVICE_API_KEY else {},
+                headers=headers,
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:

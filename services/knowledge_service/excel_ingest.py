@@ -1,8 +1,10 @@
 import logging
 import os
+import time
 
 import openpyxl
 
+import observability
 import vision
 
 logger = logging.getLogger(__name__)
@@ -114,9 +116,13 @@ def build_intermediate(sheets: dict, images_with_path: list) -> str:
 
 def refine_with_llm(raw_markdown: str, client, model: str) -> str:
     """Làm sạch format bằng text LLM hiện có — không được thay đổi dữ liệu/link ảnh."""
+    started = time.perf_counter()
     completion = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": REFINE_PROMPT.format(raw=raw_markdown)}],
+    )
+    observability.log_llm_usage(
+        logger, "llm_completion", model=model, started=started, completion=completion, purpose="excel_refine"
     )
     return completion.choices[0].message.content
 

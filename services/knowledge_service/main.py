@@ -43,6 +43,7 @@ from document_registry import (
 import excel_ingest
 import guardrails
 import manifest as manifest_store
+import observability
 import prompts
 import retrieval
 import vision
@@ -51,7 +52,7 @@ from session_store import SessionStore, history_messages
 from notebooklm_service import NotebookLMError, NotebookLMRateLimitError, NotebookLMService
 from project_config_store import ProjectConfigError, ProjectConfigStore
 
-logging.basicConfig(level=logging.INFO)
+observability.setup_logging("knowledge_service")
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
@@ -188,6 +189,29 @@ async def limit_request_body_size(request: Request, call_next):
             content={"detail": f"Request body exceeds the {MAX_UPLOAD_SIZE_MB} MB limit."},
         )
     return await call_next(request)
+
+
+# Registered last so it wraps every other middleware: the correlation ID is set
+# before auth/rate-limit code runs and therefore appears on all their log lines.
+@app.middleware("http")
+async def correlate_and_log_request(request: Request, call_next):
+    correlation_id = observability.set_correlation_id(
+        request.headers.get(observability.REQUEST_ID_HEADER)
+    )
+    started = time.perf_counter()
+    response = await call_next(request)
+    response.headers[observability.REQUEST_ID_HEADER] = correlation_id
+    if request.url.path not in EXEMPT_PATHS:  # health probes would flood the log
+        logger.info(
+            "http_request",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": observability.duration_ms(started),
+            },
+        )
+    return response
 
 
 class SearchFilters(BaseModel):
@@ -680,10 +704,27 @@ def _run_ingest(files: list[str], request: IngestRequest, trigger: str = "manual
     }
     _set_ingest_status(**summary)
     _record_ingest_history(summary, trigger)
+    logger.info(
+        "ingest_run_completed",
+        extra={
+            "trigger": trigger,
+            "status": summary["status"],
+            "total_files": summary["total_files"],
+            "ingested_count": len(ingested),
+            "skipped_count": len(skipped),
+            "failed_count": len(failed),
+            "dead_lettered_count": len(dead_lettered),
+            "pruned_points": pruned_points,
+        },
+    )
     return summary
 
 
-def _run_ingest_in_background(files: list[str], request: IngestRequest, trigger: str = "manual") -> None:
+def _run_ingest_in_background(
+    files: list[str], request: IngestRequest, trigger: str = "manual", correlation_id: str | None = None
+) -> None:
+    # contextvars do not cross thread boundaries: re-attach the request's correlation ID.
+    observability.set_correlation_id(correlation_id)
     try:
         _run_ingest(files, request, trigger)
     except Exception as e:
@@ -708,7 +749,7 @@ def _trigger_auto_ingest(trigger: str) -> dict:
 
     threading.Thread(
         target=_run_ingest_in_background,
-        args=(files, IngestRequest(), trigger),
+        args=(files, IngestRequest(), trigger, observability.get_correlation_id()),
         daemon=True,
         name="auto-ingest-worker",
     ).start()
@@ -736,7 +777,10 @@ def ingest_documents(request: IngestRequest | None = None):
 
     if request.background:
         worker = threading.Thread(
-            target=_run_ingest_in_background, args=(files, request), daemon=True, name="ingest-worker"
+            target=_run_ingest_in_background,
+            args=(files, request, "manual", observability.get_correlation_id()),
+            daemon=True,
+            name="ingest-worker",
         )
         worker.start()
         return JSONResponse(
@@ -844,22 +888,49 @@ def _retrieve(query: str, limit: int, filters: SearchFilters | None) -> tuple[li
     query_filter = _build_search_filter(filters)
     pool = max(limit * retrieval.CANDIDATE_POOL_MULTIPLIER, 20)
 
+    started = time.perf_counter()
     dense = _dense_candidates(query, pool, query_filter)
+    dense_ms = observability.duration_ms(started)
+
+    keyword_started = time.perf_counter()
     keyword = _keyword_candidates(query, pool, query_filter) if retrieval.HYBRID_SEARCH_ENABLED else []
+    keyword_ms = observability.duration_ms(keyword_started)
+
     # Rerank looks at a wider pool than the final limit so it can rescue candidates.
     rerank_pool = limit * 2 if reranker else limit
     fused = retrieval.fuse_candidates(dense, keyword, limit=max(rerank_pool, limit))
 
+    rerank_started = time.perf_counter()
     reranked = bool(reranker) and reranker.rerank(query, fused)
+    rerank_ms = observability.duration_ms(rerank_started)
     kept = retrieval.apply_threshold(fused, use_rerank_floor=reranked)[:limit]
 
+    timings_ms = {
+        "dense_search": dense_ms,
+        "keyword_search": keyword_ms,
+        "rerank": rerank_ms,
+        "total": observability.duration_ms(started),
+    }
     info = {
         "mode": "hybrid" if keyword else "dense",
         "reranked": reranked,
         "min_score": retrieval.MIN_RERANK_SCORE if reranked else retrieval.MIN_SCORE_THRESHOLD,
         "candidates": {"dense": len(dense), "keyword": len(keyword)},
         "dropped_below_threshold": len(fused) - len(retrieval.apply_threshold(fused, use_rerank_floor=reranked)),
+        "timings_ms": timings_ms,
     }
+    logger.info(
+        "qdrant_retrieval",
+        extra={
+            "mode": info["mode"],
+            "limit": limit,
+            "kept": len(kept),
+            "dense_candidates": len(dense),
+            "keyword_candidates": len(keyword),
+            "reranked": reranked,
+            **{f"{name}_ms": value for name, value in timings_ms.items()},
+        },
+    )
     return kept, info
 
 
@@ -934,11 +1005,15 @@ def get_answer(answer_query: AnswerQuery):
         if turns:
             messages = messages[:-1] + history_messages(turns) + messages[-1:]
 
+    llm_started = time.perf_counter()
     try:
         completion = client.chat.completions.create(model=model, messages=messages)
     except Exception as e:
         logger.error(f"Chat completion failed (model={model}, online={use_online}): {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Failed to get response from model '{model}'.")
+    observability.log_llm_usage(
+        logger, "llm_completion", model=model, started=llm_started, completion=completion, purpose="answer"
+    )
 
     answer_text = completion.choices[0].message.content
     if answer_query.session_id and session_store is not None:

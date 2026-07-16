@@ -1,9 +1,12 @@
 import base64
 import logging
 import os
+import time
 
 import anthropic
 import openai
+
+import observability
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +53,7 @@ def caption_image(image_bytes: bytes, ext: str, context_text: str) -> str:
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
     prompt = CAPTION_PROMPT.format(context=context_text or "(không có)")
 
+    started = time.perf_counter()
     if VISION_PROVIDER == "anthropic":
         if not anthropic_vision_client:
             raise VisionProviderUnavailable("ANTHROPIC_API_KEY is not configured.")
@@ -69,6 +73,10 @@ def caption_image(image_bytes: bytes, ext: str, context_text: str) -> str:
                 }
             ],
         )
+        observability.log_llm_usage(
+            logger, "llm_completion", model=ANTHROPIC_VISION_MODEL, started=started,
+            completion=message, purpose="vision_caption",
+        )
         return message.content[0].text.strip()
 
     if not openai_vision_client:
@@ -85,5 +93,9 @@ def caption_image(image_bytes: bytes, ext: str, context_text: str) -> str:
             }
         ],
         max_tokens=300,
+    )
+    observability.log_llm_usage(
+        logger, "llm_completion", model=OPENAI_VISION_MODEL, started=started,
+        completion=completion, purpose="vision_caption",
     )
     return completion.choices[0].message.content.strip()
