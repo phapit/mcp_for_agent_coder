@@ -1,5 +1,14 @@
 # version: '3.8'
 #
+# Hardening chung: chặn leo thang đặc quyền và bỏ toàn bộ Linux capabilities
+# (các service chỉ cần bind port >1024 và I/O file thường).
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+
 services:
 #  mongodb:
 #    image: mongo:8
@@ -12,6 +21,7 @@ services:
 #      - ai_agent_net
 
   qdrant:
+    <<: *hardening
     image: qdrant/qdrant:v1.14.1
     container_name: qdrant_db
     # Chỉ bind loopback: container nội bộ gọi qua ai_agent_net,
@@ -27,6 +37,7 @@ services:
       - ai_agent_net
 
   ollama:
+    <<: *hardening
     image: ollama/ollama:latest
     container_name: ollama
     # Không có xác thực → không publish ra LAN, chỉ bind loopback cho debug từ host.
@@ -42,6 +53,7 @@ services:
           - wiki-ollama
 
   knowledge_service:
+    <<: *hardening
     build:
       context: ./services/knowledge_service
     container_name: knowledge_service
@@ -52,7 +64,8 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=http://wiki-ollama:11434/v1
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2:7b}
+      # llama2 không có tag 3b (chỉ 7b/13b/70b); model đúng là llama3.2:3b
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:3b}
       - VISION_PROVIDER=${VISION_PROVIDER:-openai}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_VISION_MODEL=${OPENAI_VISION_MODEL:-gpt-4o}
@@ -97,6 +110,8 @@ services:
       - ./app_data/notebooklm_auth:/app/project_data/notebooklm_auth
       - ./docs:/app/project_data/docs
       - ./app_data/excel_sources:/app/project_data/excel_sources
+      # Cache model HuggingFace trên host để không phải tải lại (~2 phút) mỗi lần recreate.
+      - ./app_data/hf_cache:/home/appuser/.cache/huggingface
 
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${KNOWLEDGE_SERVICE_PORT:-8002}/health/ready', timeout=5)"]
@@ -112,6 +127,7 @@ services:
       - shared_network
 
   agent_service:
+    <<: *hardening
     build:
       context: ./services/agent_service
     container_name: agent_service
@@ -131,8 +147,11 @@ services:
     env_file:
       - .env
     volumes:
-      - ./scripts:/app/project_data/scripts
-      - ./services:/app/project_data/services
+      # Service git cần cả working tree lẫn .git; che .env và app_data
+      # (secrets, qdrant/ollama data) để không lộ vào container.
+      - .:/app/project_data
+      - /dev/null:/app/project_data/.env:ro
+      - /app/project_data/app_data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${AGENT_SERVICE_PORT:-8003}/health/ready', timeout=5)"]
       interval: 30s

@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-GitPython
-httpx
-python-dotenv
-pytest
+fastapi==0.139.0
+uvicorn==0.51.0
+GitPython==3.1.51
+httpx==0.28.1
+python-dotenv==1.2.2
+pytest==9.1.1
