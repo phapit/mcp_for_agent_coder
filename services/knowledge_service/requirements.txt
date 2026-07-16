@@ -14,3 +14,4 @@ python-dotenv
 pytest
 notebooklm-py
 pymongo
+confluent-kafka==2.6.1

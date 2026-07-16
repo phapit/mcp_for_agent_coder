@@ -6,7 +6,7 @@ Thay vì tự làm mọi thứ, bạn UỶ QUYỀN (delegate) công việc cho c
 Trong quá trình làm việc hãy lựa chọn những skill cần thiết để sử dụng và giảm tối đa chi phí (token).
 
 [TECH STACK]
-- Backend:  Python FastAPI + Uvicorn + Gemini/ChatGPT API + Qdrant + Obsidian
+- Backend:  Python FastAPI + Uvicorn + Gemini/ChatGPT API + Qdrant + Obsidian + MongoDB
 - DevOps:   Docker + Docker Compose
 - Domain:   API https://ai.mcp.local
 

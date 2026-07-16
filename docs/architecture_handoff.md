@@ -76,9 +76,9 @@ Delivery semantic dự kiến là **at-least-once**. Worker phải idempotent th
 
 ### Việc còn lại
 
-- Tạo Kafka producer/consumer và worker pipeline.
-- Chuyển các pipeline ingest thành job bất đồng bộ.
-- Bổ sung readiness check cho Kafka, Qdrant và MongoDB external.
+- ~~Tạo Kafka producer/consumer và worker pipeline.~~ (Đã xong 2026-07-16, xem mục bên dưới.)
+- ~~Chuyển các pipeline ingest thành job bất đồng bộ.~~ (Đã xong cho document ingest.)
+- ~~Bổ sung readiness check cho Kafka, Qdrant và MongoDB external.~~ (Đã xong.)
 - Hoàn thiện incremental upsert/delete trong Qdrant.
 - Bổ sung hybrid search, local reranking và citation theo heading/dòng.
 - Bổ sung integration test và adversarial test.
@@ -139,3 +139,33 @@ Chọn phương án 2 vì:
 
 - Chưa tách manifest theo `notebook_env`; hiện tại manifest gom theo `project_name` đúng với phương án 1 đã chốt.
 - Auth file chỉ được validate theo tên file và `.json`; chưa kiểm tra schema JSON ở bước cấu hình, chỉ lỗi khi NotebookLM CLI dùng thực tế.
+
+## 2026-07-16 — Tích hợp Kafka: document ingest event-driven
+
+Đã hiện thực pipeline Kafka đã chốt ngày 2026-07-15 (container `kafka` dùng chung trên
+`docker_global_bridge`, SASL_PLAINTEXT). Bật/tắt bằng `KAFKA_ENABLED` (mặc định `0` — giữ
+chế độ thread đồng bộ cũ cho dev/test).
+
+### Thành phần
+
+- `kafka_bus.py`: producer (acks=all, key = `job_id`) + factory consumer, config SASL từ env, `ping()` cho readiness.
+- `ingest_worker.py`: consumer group `knowledge-ingest` đọc `document.ingest.requested` + `document.ingest.retry`,
+  manual commit, xử lý tuần tự (1 thread → nhiều client đồng thời chỉ xếp hàng, không đè lên embedding/Qdrant).
+- `job_store.py` bổ sung `MongoJobStore` (collection `ingest_jobs`) — job state bền qua restart.
+
+### Luồng
+
+1. `POST /ingest` (hoặc auto-ingest sau export) → publish `JobEvent` lên `document.ingest.requested`,
+   lưu job `queued`, trả **202 + job_id**; client poll `GET /ingest/jobs/{job_id}`.
+2. Worker consume → `running` → chạy `_run_ingest` → publish `document.ingest.completed`, job `succeeded`.
+3. Run-level failure → publish `failed`; nếu attempt < `KAFKA_RETRY_MAX_ATTEMPTS` → publish sang `retry`
+   với `next_attempt_at` (backoff mũ từ `KAFKA_RETRY_BACKOFF_MS`); quá hạn → `dlq` + job `dead_lettered`.
+   Retry per-file vẫn theo document registry MongoDB như cũ.
+4. `correlation_id` chảy từ HTTP request → JobEvent → log worker (structured JSON, Phase 1 observability).
+
+### Lưu ý vận hành
+
+- Delivery at-least-once; ingest đã idempotent theo `document_id`/`content_hash` nên replay an toàn.
+- `/health/ready` fail khi `KAFKA_ENABLED=1` mà broker không reachable.
+- Ingest run dài hơn `KAFKA_MAX_POLL_INTERVAL_MS` (mặc định 5 phút) sẽ bị kick khỏi group — tăng env này nếu corpus lớn.
+- Excel/spreadsheet ingest vẫn đồng bộ (topic mới chỉ có nhóm `document.ingest.*`).

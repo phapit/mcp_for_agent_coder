@@ -42,12 +42,15 @@ from document_registry import (
 )
 import excel_ingest
 import guardrails
+import ingest_worker as ingest_worker_module
+import kafka_bus
 import manifest as manifest_store
 import observability
 import prompts
 import retrieval
 import vision
 from ingest_history import IngestHistory
+from job_store import MongoJobStore
 from session_store import SessionStore, history_messages
 from notebooklm_service import NotebookLMError, NotebookLMRateLimitError, NotebookLMService
 from project_config_store import ProjectConfigError, ProjectConfigStore
@@ -77,6 +80,7 @@ MONGODB_COLLECTION_NAME = os.getenv("MONGODB_COLLECTION_NAME", "project_notebook
 MONGODB_REGISTRY_COLLECTION = os.getenv("MONGODB_REGISTRY_COLLECTION", "document_registry")
 MONGODB_SESSIONS_COLLECTION = os.getenv("MONGODB_SESSIONS_COLLECTION", "chat_sessions")
 MONGODB_INGEST_HISTORY_COLLECTION = os.getenv("MONGODB_INGEST_HISTORY_COLLECTION", "ingest_runs")
+MONGODB_JOBS_COLLECTION = os.getenv("MONGODB_JOBS_COLLECTION", "ingest_jobs")
 MAX_INGEST_ATTEMPTS = int(os.getenv("MAX_INGEST_ATTEMPTS", 3))
 AUTO_INGEST_AFTER_EXPORT = os.getenv("AUTO_INGEST_AFTER_EXPORT", "1") == "1"
 SESSION_CONTEXT_TURNS = int(os.getenv("SESSION_CONTEXT_TURNS", 5))
@@ -108,6 +112,7 @@ try:
         max_turns=SESSION_MAX_TURNS,
     )
     ingest_history = IngestHistory(mongo_client[MONGODB_DB_NAME][MONGODB_INGEST_HISTORY_COLLECTION])
+    job_store = MongoJobStore(mongo_client[MONGODB_DB_NAME][MONGODB_JOBS_COLLECTION])
     reranker = retrieval.Reranker() if retrieval.RERANK_ENABLED else None
 except Exception as e:
     logger.error(f"Failed to initialize models or clients on startup: {e}", exc_info=True)
@@ -120,7 +125,11 @@ except Exception as e:
     document_registry = None
     session_store = None
     ingest_history = None
+    job_store = None
     reranker = None
+
+kafka_bus_instance = kafka_bus.KafkaBus() if kafka_bus.KAFKA_ENABLED else None
+ingest_worker: ingest_worker_module.IngestWorker | None = None
 
 app = FastAPI(title="Knowledge Curator Service")
 
@@ -138,6 +147,26 @@ def enforce_service_api_key():
         raise RuntimeError(
             "SERVICE_API_KEY must be set to a non-empty value. Refusing to start knowledge_service."
         )
+
+
+@app.on_event("startup")
+def start_kafka_ingest_worker():
+    global ingest_worker
+    if not kafka_bus.KAFKA_ENABLED:
+        return
+    if job_store is None:
+        logger.error("Kafka is enabled but the MongoDB job store is unavailable; ingest worker not started.")
+        return
+    ingest_worker = ingest_worker_module.IngestWorker(kafka_bus_instance, job_store, _run_ingest_job)
+    ingest_worker.start()
+
+
+@app.on_event("shutdown")
+def stop_kafka_ingest_worker():
+    if ingest_worker is not None:
+        ingest_worker.stop()
+    if kafka_bus_instance is not None:
+        kafka_bus_instance.close()
 
 
 @app.middleware("http")
@@ -382,12 +411,19 @@ def health_ready():
 
     checks["openai"] = "configured" if openai_client else "not_configured"
 
+    if kafka_bus.KAFKA_ENABLED:
+        checks["kafka"] = (
+            "ok" if kafka_bus_instance is not None and kafka_bus_instance.ping() else "unreachable"
+        )
+
     ai_provider_ok = checks["ollama"] == "ok" or checks["openai"] == "configured"
+    kafka_ok = not kafka_bus.KAFKA_ENABLED or checks.get("kafka") == "ok"
     ready = (
         checks["qdrant"] == "ok"
         and checks["mongodb"] == "ok"
         and checks["embedding_model"] == "ok"
         and ai_provider_ok
+        and kafka_ok
     )
     return JSONResponse(
         status_code=200 if ready else 503,
@@ -720,6 +756,29 @@ def _run_ingest(files: list[str], request: IngestRequest, trigger: str = "manual
     return summary
 
 
+def _run_ingest_job(payload: dict) -> dict:
+    """Entry point cho Kafka worker: chạy 1 ingest run từ payload của JobEvent."""
+    if not embeddings or not qdrant_client:
+        raise RuntimeError("Embeddings model or Qdrant client is not available.")
+    files = glob.glob(DOCS_GLOB, recursive=True)
+    if not files:
+        return {"status": "no_files", "total_files": 0}
+    request = IngestRequest(force=bool(payload.get("force")), prune=bool(payload.get("prune", True)))
+    # Blocking: worker chỉ có 1 thread nên các run xếp hàng tuần tự thay vì chạy chồng.
+    _ingest_run_lock.acquire()
+    return _run_ingest(files, request, trigger=payload.get("trigger", "kafka"))
+
+
+def _enqueue_ingest_job(payload: dict) -> dict:
+    """Publish 1 job ingest lên Kafka + lưu job state. Ném KafkaBusError khi Kafka lỗi."""
+    correlation_id = observability.get_correlation_id() or observability.set_correlation_id()
+    event = ingest_worker_module.new_request_event(correlation_id=correlation_id, payload=payload)
+    if job_store is not None:
+        job_store.create(event.job_id, event.job_type, correlation_id, payload)
+    kafka_bus_instance.publish_event(kafka_bus.TOPIC_REQUESTED, event)
+    return {"status": "queued", "job_id": str(event.job_id), "poll": f"/ingest/jobs/{event.job_id}"}
+
+
 def _run_ingest_in_background(
     files: list[str], request: IngestRequest, trigger: str = "manual", correlation_id: str | None = None
 ) -> None:
@@ -744,6 +803,15 @@ def _trigger_auto_ingest(trigger: str) -> dict:
     files = glob.glob(DOCS_GLOB, recursive=True)
     if not files:
         return {"status": "no_files"}
+
+    if kafka_bus.KAFKA_ENABLED and kafka_bus_instance is not None:
+        try:
+            queued = _enqueue_ingest_job({"force": False, "prune": True, "trigger": trigger})
+        except kafka_bus.KafkaBusError as e:
+            logger.error(f"Failed to enqueue auto-ingest job: {e}")
+            return {"status": "queue_failed", "detail": str(e)}
+        return {**queued, "trigger": trigger, "total_files": len(files)}
+
     if not _ingest_run_lock.acquire(blocking=False):
         return {"status": "already_running", "poll": "/ingest/status"}
 
@@ -772,6 +840,17 @@ def ingest_documents(request: IngestRequest | None = None):
     if not files:
         raise HTTPException(status_code=404, detail=f"No markdown files found matching '{DOCS_GLOB}'.")
 
+    # Event-driven: đẩy job vào Kafka, worker xử lý tuần tự — client không giữ kết nối.
+    if kafka_bus.KAFKA_ENABLED and kafka_bus_instance is not None:
+        try:
+            queued = _enqueue_ingest_job(
+                {"force": request.force, "prune": request.prune, "trigger": "manual"}
+            )
+        except kafka_bus.KafkaBusError as e:
+            logger.error(f"Failed to enqueue ingest job: {e}")
+            raise HTTPException(status_code=503, detail="Kafka is unavailable; ingest job could not be queued.")
+        return JSONResponse(status_code=202, content={**queued, "total_files": len(files)})
+
     if not _ingest_run_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="An ingest run is already in progress.")
 
@@ -788,6 +867,21 @@ def ingest_documents(request: IngestRequest | None = None):
             content={"status": "started", "total_files": len(files), "poll": "/ingest/status"},
         )
     return _run_ingest(files, request)
+
+
+@app.get("/ingest/jobs/{job_id}")
+def get_ingest_job(job_id: str):
+    """Trạng thái job ingest đã enqueue qua Kafka (queued/running/succeeded/...)."""
+    if job_store is None:
+        raise HTTPException(status_code=503, detail="MongoDB job store is not available.")
+    try:
+        parsed = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="job_id must be a UUID.")
+    job = job_store.get(parsed)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+    return job
 
 
 @app.get("/ingest/status")
