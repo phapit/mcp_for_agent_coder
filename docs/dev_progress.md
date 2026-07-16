@@ -87,3 +87,10 @@
 - Unit test: `tests/test_client_requests.py` — `8 passed`; toàn suite 82 passed (8 fail sẵn có trong `test_ingest_sync.py`, không liên quan).
 - E2E: tạo yêu cầu "Session tự gia hạn…" → truy xuất 8 trích đoạn từ 7 file `app_backend_specification_part*.md`.
 - Tài liệu chi tiết: `docs/Client-Request-Context.md`.
+
+### 2026-07-16 — Chọn ngôn ngữ đầu ra khi ingest spreadsheet (per-command --language)
+- `IngestSpreadsheetRequest` thêm field tùy chọn `language`; `process_spreadsheet` truyền `--language` vào `generate report` khi có.
+- `--language` chỉ áp dụng khi tạo report mới; nếu tái dùng report cũ, response trả `report_reused: true` và ngôn ngữ bị bỏ qua (đã ghi rõ trong UI + tài liệu).
+- Frontend: dropdown ngôn ngữ trong view Ingest Spreadsheet, hiển thị ngôn ngữ + cảnh báo tái dùng trong kết quả.
+- Unit test: bổ sung 2 test (truyền `--language`, và không thêm cờ khi `language=None`) + assert `report_reused` — `test_notebooklm_service.py` 7 passed.
+- Tài liệu: cập nhật `docs/NotebookLM-Spreadsheet-Ingestion.md`.

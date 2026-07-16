@@ -19,6 +19,7 @@ class NotebookLMResult:
     output_md: str
     source_id: str | None
     artifact_id: str | None
+    report_reused: bool = False  # True nếu tái dùng report cũ → --language không được áp dụng
 
 
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
@@ -103,7 +104,9 @@ class NotebookLMService:
                     return str(artifact_id)
         return None
 
-    def process_spreadsheet(self, spreadsheet_id: str, output_name: str) -> NotebookLMResult:
+    def process_spreadsheet(
+        self, spreadsheet_id: str, output_name: str, language: str | None = None
+    ) -> NotebookLMResult:
         if not self.notebook_id:
             raise NotebookLMError("NOTEBOOKLM_NOTEBOOK_ID is not configured.")
         if not self.auth_json:
@@ -131,11 +134,13 @@ class NotebookLMService:
             self._run(["source", "wait", source_id, "--timeout", "120", "-n", self.notebook_id])
 
         artifact_id = self._find_report(spreadsheet_id, output_name)
+        report_reused = bool(artifact_id)
         if not artifact_id:
-            artifact = self._run(
-                ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id, "--no-wait"],
-                json_output=True,
-            )
+            generate_args = ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id, "--no-wait"]
+            if language:
+                # --language chỉ tác động lúc generate; không đổi được ngôn ngữ của report đã tồn tại.
+                generate_args += ["--language", language]
+            artifact = self._run(generate_args, json_output=True)
             artifact_id = (
                 artifact.get("artifact", {}).get("id")
                 or artifact.get("artifact_id")
@@ -151,4 +156,4 @@ class NotebookLMService:
         self._run(
             ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
         )
-        return NotebookLMResult(str(output_path), source_id, artifact_id)
+        return NotebookLMResult(str(output_path), source_id, artifact_id, report_reused=report_reused)

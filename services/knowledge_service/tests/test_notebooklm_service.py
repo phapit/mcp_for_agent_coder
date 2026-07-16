@@ -74,8 +74,56 @@ def test_process_spreadsheet_reuses_existing_source_and_artifact(tmp_path):
 
     assert result.source_id == "src-existing"
     assert result.artifact_id == "art-existing"
+    assert result.report_reused is True
     assert not any(call[1:3] == ["source", "add-drive"] for call in calls)
     assert not any(call[1:3] == ["generate", "report"] for call in calls)
+
+
+def test_process_spreadsheet_passes_language_to_generate(tmp_path):
+    calls = []
+
+    def runner(command):
+        calls.append(list(command))
+        if command[1:3] == ["source", "list"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"sources": []}), "")
+        if command[1:4] == ["artifact", "list", "--type"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifacts": []}), "")
+        if command[1:3] == ["source", "add-drive"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"source": {"id": "src-1"}}), "")
+        if command[1:3] == ["generate", "report"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-1"}}), "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    result = NotebookLMService("nb-1", str(tmp_path), auth_json="{}", runner=runner).process_spreadsheet(
+        "spreadsheet-id", "sheet.md", language="vi"
+    )
+
+    generate_call = next(c for c in calls if c[1:3] == ["generate", "report"])
+    assert generate_call[generate_call.index("--language") + 1] == "vi"
+    assert result.report_reused is False
+
+
+def test_process_spreadsheet_omits_language_flag_when_none(tmp_path):
+    calls = []
+
+    def runner(command):
+        calls.append(list(command))
+        if command[1:3] == ["source", "list"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"sources": []}), "")
+        if command[1:4] == ["artifact", "list", "--type"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifacts": []}), "")
+        if command[1:3] == ["source", "add-drive"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"source": {"id": "src-1"}}), "")
+        if command[1:3] == ["generate", "report"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-1"}}), "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    NotebookLMService("nb-1", str(tmp_path), auth_json="{}", runner=runner).process_spreadsheet(
+        "spreadsheet-id", "sheet.md"
+    )
+
+    generate_call = next(c for c in calls if c[1:3] == ["generate", "report"])
+    assert "--language" not in generate_call
 
 
 def test_process_spreadsheet_requires_notebook_id():

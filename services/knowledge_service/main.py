@@ -290,6 +290,7 @@ class IngestSpreadsheetRequest(BaseModel):
     notebook_env: str
     spreadsheet_id: str
     output_name: str = "spreadsheet.md"
+    language: str | None = None  # mã ngôn ngữ đầu ra khi generate report (vd: vi, en, ja); None = mặc định của NotebookLM
 
     @field_validator("project_name", "notebook_env")
     @classmethod
@@ -1385,7 +1386,9 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         auth_json=auth_json,
     )
     try:
-        result = service.process_spreadsheet(request.spreadsheet_id, request.output_name)
+        result = service.process_spreadsheet(
+            request.spreadsheet_id, request.output_name, language=request.language
+        )
     except NotebookLMRateLimitError as exc:
         logger.warning("NotebookLM rate limit; job can be resumed without creating a duplicate: %s", exc)
         raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -1419,6 +1422,8 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         "source_id": result.source_id,
         "artifact_id": result.artifact_id,
         "output_md": result.output_md,
+        "language": request.language,
+        "report_reused": result.report_reused,
         "auto_ingest": _trigger_auto_ingest("notebooklm_export"),
     }
 

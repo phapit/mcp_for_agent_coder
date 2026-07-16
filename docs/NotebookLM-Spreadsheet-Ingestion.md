@@ -97,12 +97,23 @@ Request:
   "project_name": "projectA",
   "notebook_env": "env_a",
   "spreadsheet_id": "<Google-Sheet-file-ID>",
-  "output_name": "requirements.md"
+  "output_name": "requirements.md",
+  "language": "vi"
 }
 ```
 
 `output_name` chỉ được là tên file Markdown đơn giản, không chứa path hoặc thư
 mục con.
+
+`language` (tùy chọn) là mã ngôn ngữ đầu ra cho bước generate report, truyền
+per-command qua cờ `--language` của NotebookLM CLI (vd: `vi`, `en`, `ja`,
+`zh_Hans`, `ko`, `fr`). Bỏ trống để dùng mặc định của NotebookLM
+(`NOTEBOOKLM_HL` env → config global → `en`).
+
+**Lưu ý quan trọng:** `--language` chỉ tác động khi **tạo report mới**. Nếu
+report cho spreadsheet này đã tồn tại, luồng tái sử dụng report cũ và **bỏ qua
+`language`** (response trả `report_reused: true`). Muốn ép tạo lại bằng ngôn
+ngữ khác, đổi `output_name` để không khớp report cũ.
 
 Response thành công gồm:
 
@@ -114,7 +125,9 @@ Response thành công gồm:
   "notebook_id": "<notebook-id>",
   "source_id": "<source-id>",
   "artifact_id": "<artifact-id>",
-  "output_md": "/app/project_data/docs/imported/projectA/requirements.md"
+  "output_md": "/app/project_data/docs/imported/projectA/requirements.md",
+  "language": "vi",
+  "report_reused": false
 }
 ```
 
