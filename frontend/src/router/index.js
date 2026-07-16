@@ -51,6 +51,12 @@ const routes = [
     meta: { title: 'Ingest Spreadsheet' },
   },
   {
+    path: '/custom-report',
+    name: 'custom-report',
+    component: () => import('@/views/CustomReportView.vue'),
+    meta: { title: 'Xuất tài liệu theo yêu cầu' },
+  },
+  {
     path: '/logs',
     name: 'logs',
     component: () => import('@/views/ActivityLogView.vue'),

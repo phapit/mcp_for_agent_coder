@@ -304,6 +304,45 @@ class IngestSpreadsheetRequest(BaseModel):
         return value
 
 
+REPORT_FORMATS = ("briefing-doc", "study-guide", "blog-post", "custom")
+
+
+class NotebookReportRequest(BaseModel):
+    project_name: str
+    notebook_env: str
+    prompt: str  # yêu cầu tự do, vd: "Mô tả chi tiết logic hoạt động của button A"
+    output_name: str = "custom-report.md"
+    format: str = "custom"  # briefing-doc | study-guide | blog-post | custom
+    append: str | None = None  # chỉ áp dụng khi format != custom
+    language: str | None = None  # mã ngôn ngữ đầu ra (vd: vi, en, ja); None = mặc định NotebookLM
+
+    @field_validator("project_name", "notebook_env")
+    @classmethod
+    def validate_scope_name(cls, value: str) -> str:
+        return _validate_storage_name(value, "scope")
+
+    @field_validator("output_name")
+    @classmethod
+    def validate_output_name(cls, value: str) -> str:
+        _validate_output_name(value)
+        return value
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("prompt must not be empty.")
+        return value
+
+    @field_validator("format")
+    @classmethod
+    def validate_format(cls, value: str) -> str:
+        if value not in REPORT_FORMATS:
+            raise ValueError(f"format must be one of {list(REPORT_FORMATS)}.")
+        return value
+
+
 class ProjectNotebookConfigUpsertRequest(BaseModel):
     project_name: str
     notebook_env: str
@@ -1455,6 +1494,70 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         "language": request.language,
         "report_reused": result.report_reused,
         "auto_ingest": _trigger_auto_ingest("notebooklm_export"),
+    }
+
+
+@app.post("/notebook-reports")
+def generate_notebook_report(request: NotebookReportRequest):
+    """Tạo tài liệu theo yêu cầu tự do của người dùng (prompt) từ các source
+    đã có sẵn trong notebook của project — vd: "Mô tả chi tiết logic hoạt động
+    của button A". Không thêm source mới; luôn generate report mới (không tái
+    dùng report cũ vì mỗi prompt có thể cho nội dung khác nhau)."""
+    store = _require_project_config_store()
+    try:
+        config = store.get_config(request.project_name, request.notebook_env)
+    except ProjectConfigError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    auth_json = _load_notebook_auth_json(config.notebooklm_auth_name)
+    output_dir = _project_output_dir(request.project_name)
+    service = NotebookLMService(
+        notebook_id=config.notebook_id,
+        output_dir=output_dir,
+        auth_json=auth_json,
+    )
+    try:
+        result = service.generate_custom_report(
+            request.prompt,
+            request.output_name,
+            report_format=request.format,
+            language=request.language,
+            append=request.append,
+        )
+    except NotebookLMRateLimitError as exc:
+        logger.warning("NotebookLM rate limit; can be retried without creating a duplicate: %s", exc)
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except NotebookLMError as exc:
+        logger.error("NotebookLM custom report generation failed: %s", exc)
+        status_code = 503 if "not configured" in str(exc) else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    manifest = manifest_store.load_manifest(output_dir)
+    manifest_store.record_success(
+        manifest,
+        request.output_name,
+        manifest_store.compute_hash(request.prompt.encode("utf-8")),
+        result.output_md,
+        0,
+        project_name=request.project_name,
+        notebook_env=request.notebook_env,
+        notebook_id=service.notebook_id,
+        notebooklm_auth_name=config.notebooklm_auth_name,
+        artifact_id=result.artifact_id,
+        prompt=request.prompt,
+        format=request.format,
+    )
+    manifest_store.save_manifest(output_dir, manifest)
+
+    return {
+        "project_name": request.project_name,
+        "notebook_env": request.notebook_env,
+        "notebook_id": service.notebook_id,
+        "artifact_id": result.artifact_id,
+        "output_md": result.output_md,
+        "format": request.format,
+        "language": request.language,
+        "auto_ingest": _trigger_auto_ingest("notebooklm_custom_report"),
     }
 
 

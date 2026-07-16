@@ -101,3 +101,11 @@
 - E2E: gọi preview với project `ss_pocket` — số bản ghi trong `/client-requests` trước/sau không đổi (3 → 3), xác nhận không lưu.
 - Tạo skill `.claude/skills/ss_pocket_docs/SKILL.md`: hướng dẫn tra cứu đặc tả dự án `ss_pocket` qua endpoint preview (resolve host port động bằng `docker port` vì port không cố định), lấy markdown theo vai trò, và khi nào nên dùng `/client-requests` (lưu) thay vì preview.
 - Tài liệu: cập nhật `docs/Client-Request-Context.md` (bảng endpoint + khi nào dùng preview vs lưu).
+
+### 2026-07-16 — Xuất tài liệu NotebookLM theo prompt tự do
+- `NotebookLMService.generate_custom_report(prompt, output_name, report_format, language, append)`: gọi `generate report [prompt] --format ...` trên source có sẵn trong notebook (không thêm source mới), luôn generate mới (không tái dùng report cũ).
+- Endpoint mới `POST /notebook-reports` (main.py) — resolve project/env như `/ingest-spreadsheet`, validate `format` (briefing-doc/study-guide/blog-post/custom), `append` chỉ áp dụng khi format khác `custom`, hỗ trợ `language` per-command (tái dùng field đã thêm trước đó). Ghi manifest + trigger auto_ingest.
+- Frontend: view mới "Xuất tài liệu theo yêu cầu" (`/custom-report`) — prompt tự do, chọn định dạng/ngôn ngữ/append.
+- Unit test: 6 test mới trong `test_notebooklm_service.py` (generate/wait/download, truyền format+language+append, append bị bỏ qua khi format=custom, validate prompt/notebook_id) — 13 passed.
+- Validation qua HTTP thật: format sai → 422, project không tồn tại → 404, prompt rỗng → 422. Chưa gọi NotebookLM thật (tránh tốn quota/tạo artifact thật không cần thiết).
+- Tài liệu: thêm mục trong `docs/NotebookLM-Spreadsheet-Ingestion.md`, cập nhật README.md.

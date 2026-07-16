@@ -92,6 +92,15 @@ Bảo mật: service không khởi động nếu thiếu `SERVICE_API_KEY`; rate
 (`RATE_LIMIT_PER_MINUTE`, mặc định 120/phút); giới hạn upload (`MAX_UPLOAD_SIZE_MB`, mặc định 20 MB);
 CORS chỉ bật khi khai báo `ALLOWED_ORIGINS`; container chạy non-root (uid 1000).
 
+### Xuất tài liệu theo yêu cầu tự do (NotebookLM)
+
+`POST /notebook-reports` nhận một prompt tự do (vd: "Mô tả chi tiết logic hoạt động của button A")
+và yêu cầu NotebookLM tạo tài liệu dựa trên các source đã có sẵn trong notebook của dự án, sau đó tự
+động ingest. Hỗ trợ chọn định dạng (`briefing-doc`/`study-guide`/`blog-post`/`custom`) và ngôn ngữ đầu
+ra per-command. UI: menu "Xuất tài liệu theo yêu cầu".
+
+Chi tiết: xem mục "Xuất tài liệu theo yêu cầu tự do" trong [docs/NotebookLM-Spreadsheet-Ingestion.md](docs/NotebookLM-Spreadsheet-Ingestion.md).
+
 ### Yêu cầu khách hàng → gói ngữ cảnh cho agent
 
 `POST /client-requests` tiếp nhận yêu cầu thêm tính năng / sửa lỗi từ khách, truy xuất đặc tả hiện có

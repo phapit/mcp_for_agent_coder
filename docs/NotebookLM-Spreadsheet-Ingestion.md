@@ -171,6 +171,55 @@ python3 scripts/ingest_spreadsheet.py \
 Kết quả nằm trong `docs/imported/projectA/test-spreadsheet.md`. Metadata của lần
 xử lý nằm trong `docs/imported/projectA/.manifest.json`.
 
+## Xuất tài liệu theo yêu cầu tự do (custom report)
+
+`POST /notebook-reports` cho phép nhập một **prompt tự do** để NotebookLM tạo
+tài liệu theo đúng yêu cầu, dựa trên các source **đã có sẵn** trong notebook
+của dự án (không thêm source mới — cần chạy `/ingest-spreadsheet` hoặc thêm
+source thủ công trước). Ví dụ: "Mô tả chi tiết logic hoạt động của button A".
+
+```http
+POST /notebook-reports
+Content-Type: application/json
+```
+
+```json
+{
+  "project_name": "projectA",
+  "notebook_env": "env_a",
+  "prompt": "Mô tả chi tiết logic hoạt động của button A",
+  "output_name": "button-a.md",
+  "format": "custom",
+  "language": "vi"
+}
+```
+
+Field:
+
+| Field | Bắt buộc | Mô tả |
+|---|---|---|
+| `prompt` | có | Yêu cầu tự do, truyền thẳng vào `generate report [prompt]` của NotebookLM CLI. |
+| `output_name` | không (mặc định `custom-report.md`) | Tên file `.md` đơn giản, không chứa path. |
+| `format` | không (mặc định `custom`) | `briefing-doc` \| `study-guide` \| `blog-post` \| `custom`. Với `custom`, prompt là toàn quyền chỉ dẫn nội dung; các định dạng còn lại dùng template có sẵn của NotebookLM, prompt chỉ override phần mô tả mở đầu. |
+| `append` | không | Chỉ có tác dụng khi `format != custom` — thêm chỉ dẫn bổ sung vào template có sẵn. |
+| `language` | không | Mã ngôn ngữ đầu ra (per-command `--language`, vd `vi`, `en`, `ja`). Bỏ trống dùng mặc định NotebookLM. |
+
+Khác với `/ingest-spreadsheet`, endpoint này **luôn generate report mới** —
+không tái sử dụng report cũ, vì mỗi prompt có thể cho ra nội dung khác nhau.
+Response trả `artifact_id`, `output_md`, `format`, `language` và kích hoạt
+`auto_ingest` giống các endpoint export khác.
+
+```bash
+curl -X POST http://localhost:8002/notebook-reports \
+  -H "Content-Type: application/json" -H "X-API-Key: $SERVICE_API_KEY" \
+  -d '{
+    "project_name": "projectA",
+    "notebook_env": "env_a",
+    "prompt": "Mô tả chi tiết logic hoạt động của button A",
+    "output_name": "button-a.md"
+  }'
+```
+
 ## Xử lý lỗi report generation
 
 NotebookLM generation là thao tác bất đồng bộ. Một số phiên bản CLI trả về

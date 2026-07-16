@@ -111,6 +111,7 @@ export const api = {
     })
   },
   ingestSpreadsheet: (payload) => kn('/ingest-spreadsheet', { method: 'POST', body: payload }),
+  generateNotebookReport: (payload) => kn('/notebook-reports', { method: 'POST', body: payload }),
 
   // ---- Yêu cầu khách hàng (client requests) ----
   createClientRequest: (payload) => kn('/client-requests', { method: 'POST', body: payload }),

@@ -157,3 +157,48 @@ class NotebookLMService:
             ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
         )
         return NotebookLMResult(str(output_path), source_id, artifact_id, report_reused=report_reused)
+
+    def generate_custom_report(
+        self,
+        prompt: str,
+        output_name: str,
+        report_format: str = "custom",
+        language: str | None = None,
+        append: str | None = None,
+    ) -> NotebookLMResult:
+        """Tạo tài liệu theo yêu cầu tự do của người dùng (prompt), dựa trên các
+        source đã có sẵn trong notebook. Luôn generate mới, không tái sử dụng
+        report cũ vì mỗi prompt có thể cho ra nội dung khác nhau."""
+        if not self.notebook_id:
+            raise NotebookLMError("NOTEBOOKLM_NOTEBOOK_ID is not configured.")
+        if not self.auth_json:
+            raise NotebookLMError("NOTEBOOKLM_AUTH_JSON is not configured.")
+        if not prompt.strip():
+            raise NotebookLMError("prompt must not be empty.")
+
+        generate_args = [
+            "generate", "report", prompt, "--format", report_format, "-n", self.notebook_id, "--no-wait",
+        ]
+        if append and report_format != "custom":
+            # --append không có tác dụng với --format custom (theo tài liệu NotebookLM CLI).
+            generate_args += ["--append", append]
+        if language:
+            generate_args += ["--language", language]
+
+        artifact = self._run(generate_args, json_output=True)
+        artifact_id = (
+            artifact.get("artifact", {}).get("id")
+            or artifact.get("artifact_id")
+            or artifact.get("task_id")
+            or artifact.get("task", {}).get("id")
+        )
+        if not artifact_id:
+            raise NotebookLMError("NotebookLM report response did not include an artifact id.")
+
+        self._run(["artifact", "wait", artifact_id, "--timeout", "120", "-n", self.notebook_id])
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = self.output_dir / output_name
+        self._run(
+            ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
+        )
+        return NotebookLMResult(str(output_path), None, artifact_id)

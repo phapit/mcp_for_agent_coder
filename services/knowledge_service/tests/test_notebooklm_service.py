@@ -126,6 +126,74 @@ def test_process_spreadsheet_omits_language_flag_when_none(tmp_path):
     assert "--language" not in generate_call
 
 
+def test_generate_custom_report_runs_generate_wait_download(tmp_path):
+    calls = []
+
+    def runner(command):
+        calls.append(list(command))
+        if command[1:3] == ["generate", "report"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-9"}}), "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    result = NotebookLMService("nb-1", str(tmp_path), auth_json="{}", runner=runner).generate_custom_report(
+        "Mô tả chi tiết logic hoạt động của button A", "button-a.md"
+    )
+
+    assert result.artifact_id == "art-9"
+    assert result.output_md == str(tmp_path / "button-a.md")
+    generate_call = next(c for c in calls if c[1:3] == ["generate", "report"])
+    assert generate_call[3] == "Mô tả chi tiết logic hoạt động của button A"
+    assert generate_call[generate_call.index("--format") + 1] == "custom"
+    assert calls[-2][1:3] == ["artifact", "wait"]
+    assert calls[-1][1:3] == ["download", "report"]
+
+
+def test_generate_custom_report_passes_language_and_format(tmp_path):
+    calls = []
+
+    def runner(command):
+        calls.append(list(command))
+        if command[1:3] == ["generate", "report"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-9"}}), "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    NotebookLMService("nb-1", str(tmp_path), auth_json="{}", runner=runner).generate_custom_report(
+        "Tóm tắt cho stakeholder", "summary.md", report_format="briefing-doc", language="vi", append="Ngắn gọn"
+    )
+
+    generate_call = next(c for c in calls if c[1:3] == ["generate", "report"])
+    assert generate_call[generate_call.index("--format") + 1] == "briefing-doc"
+    assert generate_call[generate_call.index("--language") + 1] == "vi"
+    assert generate_call[generate_call.index("--append") + 1] == "Ngắn gọn"
+
+
+def test_generate_custom_report_ignores_append_when_format_custom(tmp_path):
+    calls = []
+
+    def runner(command):
+        calls.append(list(command))
+        if command[1:3] == ["generate", "report"]:
+            return subprocess.CompletedProcess(command, 0, json.dumps({"artifact": {"id": "art-9"}}), "")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    NotebookLMService("nb-1", str(tmp_path), auth_json="{}", runner=runner).generate_custom_report(
+        "Câu hỏi tự do", "free.md", report_format="custom", append="Không nên có tác dụng"
+    )
+
+    generate_call = next(c for c in calls if c[1:3] == ["generate", "report"])
+    assert "--append" not in generate_call
+
+
+def test_generate_custom_report_requires_prompt(tmp_path):
+    with pytest.raises(NotebookLMError, match="prompt"):
+        NotebookLMService("nb-1", str(tmp_path), auth_json="{}").generate_custom_report("  ", "out.md")
+
+
+def test_generate_custom_report_requires_notebook_id():
+    with pytest.raises(NotebookLMError, match="NOTEBOOKLM_NOTEBOOK_ID"):
+        NotebookLMService(auth_json="{\"cookies\":[]}").generate_custom_report("prompt", "out.md")
+
+
 def test_process_spreadsheet_requires_notebook_id():
     with pytest.raises(NotebookLMError, match="NOTEBOOKLM_NOTEBOOK_ID"):
         NotebookLMService(auth_json="{\"cookies\":[]}").process_spreadsheet("https://example.com/sheet", "sheet.md")
