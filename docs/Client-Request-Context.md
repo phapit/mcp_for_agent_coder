@@ -20,6 +20,7 @@ Tiếp nhận yêu cầu từ khách hàng (thêm tính năng / sửa lỗi), tr
 
 | Method | Endpoint | Mô tả |
 |---|---|---|
+| POST | `/client-requests/preview` | Tra cứu thuần túy — truy xuất và trả `context` (kèm `markdown` nếu có `?role=`), **không lưu bản ghi**. Body giống `/client-requests`. |
 | POST | `/client-requests` | Tạo yêu cầu và phân tích ngay. Body: `{title, description, request_type: "feature"\|"bug", project?, requester?, limit?}` (mặc định 8 trích đoạn). Trả 201 kèm `context`. |
 | GET | `/client-requests?limit=` | Danh sách rút gọn, mới nhất trước (không kèm nội dung trích đoạn). |
 | GET | `/client-requests/{id}` | Bản ghi đầy đủ kèm gói ngữ cảnh gần nhất. |
@@ -34,6 +35,10 @@ Ví dụ dùng cho agent:
 curl -s "http://localhost:8002/client-requests/<id>/context?role=coder" \
   -H "X-API-Key: $SERVICE_API_KEY" | jq -r '.markdown'
 ```
+
+Dùng `/client-requests/preview` khi chỉ cần tra cứu (không cần theo dõi lại
+sau này); dùng `/client-requests` khi cần lưu để nhiều agent tham chiếu qua
+`request_id` hoặc để `reanalyze` sau khi ingest thêm đặc tả.
 
 ## Lưu trữ
 

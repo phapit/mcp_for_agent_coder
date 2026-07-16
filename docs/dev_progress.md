@@ -94,3 +94,10 @@
 - Frontend: dropdown ngôn ngữ trong view Ingest Spreadsheet, hiển thị ngôn ngữ + cảnh báo tái dùng trong kết quả.
 - Unit test: bổ sung 2 test (truyền `--language`, và không thêm cờ khi `language=None`) + assert `report_reused` — `test_notebooklm_service.py` 7 passed.
 - Tài liệu: cập nhật `docs/NotebookLM-Spreadsheet-Ingestion.md`.
+
+### 2026-07-16 — Endpoint tra cứu thuần túy /client-requests/preview + skill ss_pocket_docs
+- Thêm `POST /client-requests/preview` (main.py): truy xuất đặc tả liên quan, trả `context` (+ `markdown` nếu có `?role=pm|coder|tester`), KHÔNG ghi vào MongoDB — tái dùng `_analyze_client_request` sẵn có.
+- Unit test: 6 test mới (không lưu bản ghi, có/không markdown, validate role/request_type, cảnh báo khi không có đặc tả) — `test_client_requests.py` 14 passed.
+- E2E: gọi preview với project `ss_pocket` — số bản ghi trong `/client-requests` trước/sau không đổi (3 → 3), xác nhận không lưu.
+- Tạo skill `.claude/skills/ss_pocket_docs/SKILL.md`: hướng dẫn tra cứu đặc tả dự án `ss_pocket` qua endpoint preview (resolve host port động bằng `docker port` vì port không cố định), lấy markdown theo vai trò, và khi nào nên dùng `/client-requests` (lưu) thay vì preview.
+- Tài liệu: cập nhật `docs/Client-Request-Context.md` (bảng endpoint + khi nào dùng preview vs lưu).

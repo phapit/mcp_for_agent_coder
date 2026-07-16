@@ -157,6 +157,88 @@ def test_list_and_reanalyze(monkeypatch):
     assert any(r["request_id"] == request_id for r in listing.json())
 
 
+def _preview(client, **overrides):
+    payload = {
+        "title": "Tra cứu hành vi session",
+        "description": "Session hiện tại xử lý gia hạn thế nào?",
+        "request_type": "bug",
+        **overrides,
+    }
+    return client.post("/client-requests/preview", json=payload, headers=HEADERS)
+
+
+def test_preview_does_not_persist_record(monkeypatch):
+    client = _client(monkeypatch, [SPEC_MATCH])
+
+    response = _preview(client)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "request_id" not in body
+    assert body["context"]["has_related_specs"] is True
+    assert body["context"]["excerpts"][0]["source"] == "docs/imported/session-spec.md"
+    # Không có bản ghi nào được lưu vào store.
+    assert main.client_request_store.list() == []
+
+
+def test_preview_without_role_omits_markdown(monkeypatch):
+    client = _client(monkeypatch, [SPEC_MATCH])
+
+    response = _preview(client)
+
+    assert "markdown" not in response.json()
+
+
+def test_preview_with_role_returns_markdown(monkeypatch):
+    client = _client(monkeypatch, [SPEC_MATCH])
+
+    response = client.post(
+        "/client-requests/preview?role=tester",
+        json={
+            "title": "Tra cứu hành vi session",
+            "description": "Session hiện tại xử lý gia hạn thế nào?",
+            "request_type": "bug",
+            "project": "ss_pocket",
+        },
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["role"] == "tester"
+    assert "[1] docs/imported/session-spec.md" in body["markdown"]
+    assert "regression test" in body["markdown"]
+
+
+def test_preview_rejects_unknown_role(monkeypatch):
+    client = _client(monkeypatch, [SPEC_MATCH])
+
+    response = client.post("/client-requests/preview?role=designer", json={
+        "title": "T", "description": "D", "request_type": "bug",
+    }, headers=HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_preview_rejects_unknown_request_type(monkeypatch):
+    client = _client(monkeypatch, [SPEC_MATCH])
+
+    response = _preview(client, request_type="chore")
+
+    assert response.status_code == 422
+
+
+def test_preview_without_related_specs_warns_explicitly(monkeypatch):
+    client = _client(monkeypatch, [])
+
+    response = _preview(client)
+
+    assert response.status_code == 200
+    context = response.json()["context"]
+    assert context["has_related_specs"] is False
+    assert "KHÔNG tìm thấy đặc tả" in context["warning"]
+
+
 def test_markdown_no_specs_forbids_guessing():
     request = {
         "request_id": "req-x",

@@ -1199,6 +1199,36 @@ def _analyze_client_request(record: dict, limit: int) -> dict:
     return client_requests.build_context_package(query_text, excerpts, retrieval_info)
 
 
+@app.post("/client-requests/preview")
+def preview_client_request(payload: ClientRequestCreate, role: str | None = None):
+    """Tra cứu thuần túy: truy xuất đặc tả liên quan, KHÔNG lưu bản ghi vào MongoDB."""
+    if payload.request_type not in client_requests.REQUEST_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"request_type must be one of {list(client_requests.REQUEST_TYPES)}.",
+        )
+    if not payload.title.strip() or not payload.description.strip():
+        raise HTTPException(status_code=422, detail="title and description must be non-empty.")
+    if role is not None and role not in client_requests.AGENT_ROLES:
+        raise HTTPException(
+            status_code=422, detail=f"role must be one of {list(client_requests.AGENT_ROLES)}."
+        )
+
+    record = {
+        "request_id": "(preview)",
+        "title": payload.title.strip(),
+        "description": payload.description.strip(),
+        "request_type": payload.request_type,
+        "project": payload.project,
+    }
+    package = _analyze_client_request(record, payload.limit)
+    response = {"context": package}
+    if role is not None:
+        response["role"] = role
+        response["markdown"] = client_requests.render_context_markdown(record, package, role)
+    return response
+
+
 @app.post("/client-requests", status_code=201)
 def create_client_request(payload: ClientRequestCreate):
     store = _require_client_request_store()
