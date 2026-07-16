@@ -115,3 +115,10 @@
 - Frontend: `maxlength="1024"` trên textarea + bộ đếm ký tự + kiểm tra lại trước khi submit.
 - Unit test: `test_notebook_report_request.py` (mới) — chấp nhận đúng 1024, từ chối 1025, endpoint trả 422 qua TestClient — 3 passed.
 - Xác nhận qua HTTP thật: 1025 ký tự → 422 đúng thông báo; 1024 ký tự qua được validate (tiếp tục xử lý bình thường).
+
+### 2026-07-16 — Tái cấu trúc main.py của knowledge_service (1656 → ~340 dòng)
+- Tách theo domain: `schemas.py` (Pydantic models + validators), `routes_ingest.py` (/ingest*), `routes_qa.py` (/search /answer /sessions), `routes_client_requests.py` (/client-requests*), `routes_notebooklm.py` (/ingest-excel* /ingest-spreadsheet /notebook-reports /project-notebook-configs*).
+- `main.py` giữ vai trò composition root: config env, khởi tạo client/store toàn cục, middleware (API key, rate limit, body size, correlation), lifecycle, health check, include routers.
+- QUY ƯỚC STATE (ghi trong docstring main.py): routes_* truy cập state qua `main.<attr>` tại thời điểm request — nhờ đó test monkeypatch trên main tác động mọi domain; cross-domain gọi qua alias `main._retrieve` / `main._trigger_auto_ingest`, không import chéo router.
+- Thêm tính năng mới = thêm 1 file `routes_*` + `app.include_router(...)` trong main.py.
+- Kiểm chứng: 98 passed (y hệt baseline trước refactor, 8 fail sẵn có trong test_ingest_sync không đổi); openapi có đúng 26 paths như trước; smoke test HTTP thật cả 4 router + auth 401.
