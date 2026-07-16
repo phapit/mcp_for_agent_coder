@@ -74,15 +74,17 @@ class FakeQdrant:
 
     def scroll(self, collection_name, scroll_filter, limit, with_payload, with_vectors):
         class _Point:
-            def __init__(self, payload):
+            def __init__(self, pid, payload):
+                self.id = pid
                 self.payload = payload
 
         ids = self._filter_ids(scroll_filter)[:limit]
-        return [_Point(self.points[i]) for i in ids], None
+        return [_Point(i, self.points[i]) for i in ids], None
 
     def query_points(self, collection_name, query, limit, query_filter=None):
         class _Point:
-            def __init__(self, payload):
+            def __init__(self, pid, payload):
+                self.id = pid
                 self.payload = payload
                 self.score = 1.0
 
@@ -91,7 +93,7 @@ class FakeQdrant:
                 self.points = points
 
         ids = self._filter_ids(query_filter) if query_filter is not None else list(self.points)
-        return _Result([_Point(self.points[i]) for i in ids[:limit]])
+        return _Result([_Point(i, self.points[i]) for i in ids[:limit]])
 
 
 class FakeMongoCollection:

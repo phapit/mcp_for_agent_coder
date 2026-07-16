@@ -14,7 +14,6 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
-from langchain_text_splitters import MarkdownTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
@@ -23,14 +22,18 @@ from qdrant_client.http.models import (
     Filter,
     FilterSelector,
     MatchAny,
+    MatchText,
     MatchValue,
     PayloadSchemaType,
     PointStruct,
+    TextIndexParams,
+    TokenizerType,
     VectorParams,
 )
 import openai
 from pymongo import MongoClient
 
+import chunking
 import document_identity as identity
 from document_registry import (
     STATUS_DEAD_LETTER,
@@ -38,8 +41,13 @@ from document_registry import (
     DocumentRegistry,
 )
 import excel_ingest
+import guardrails
 import manifest as manifest_store
+import prompts
+import retrieval
 import vision
+from ingest_history import IngestHistory
+from session_store import SessionStore, history_messages
 from notebooklm_service import NotebookLMError, NotebookLMRateLimitError, NotebookLMService
 from project_config_store import ProjectConfigError, ProjectConfigStore
 
@@ -66,7 +74,12 @@ MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://mongodb:27017")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "knowledge_service")
 MONGODB_COLLECTION_NAME = os.getenv("MONGODB_COLLECTION_NAME", "project_notebook_configs")
 MONGODB_REGISTRY_COLLECTION = os.getenv("MONGODB_REGISTRY_COLLECTION", "document_registry")
+MONGODB_SESSIONS_COLLECTION = os.getenv("MONGODB_SESSIONS_COLLECTION", "chat_sessions")
+MONGODB_INGEST_HISTORY_COLLECTION = os.getenv("MONGODB_INGEST_HISTORY_COLLECTION", "ingest_runs")
 MAX_INGEST_ATTEMPTS = int(os.getenv("MAX_INGEST_ATTEMPTS", 3))
+AUTO_INGEST_AFTER_EXPORT = os.getenv("AUTO_INGEST_AFTER_EXPORT", "1") == "1"
+SESSION_CONTEXT_TURNS = int(os.getenv("SESSION_CONTEXT_TURNS", 5))
+SESSION_MAX_TURNS = int(os.getenv("SESSION_MAX_TURNS", 20))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "local")
 SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "").strip()
 API_KEY_HEADER = "X-API-Key"
@@ -89,6 +102,12 @@ try:
         mongo_client[MONGODB_DB_NAME][MONGODB_REGISTRY_COLLECTION],
         max_attempts=MAX_INGEST_ATTEMPTS,
     )
+    session_store = SessionStore(
+        mongo_client[MONGODB_DB_NAME][MONGODB_SESSIONS_COLLECTION],
+        max_turns=SESSION_MAX_TURNS,
+    )
+    ingest_history = IngestHistory(mongo_client[MONGODB_DB_NAME][MONGODB_INGEST_HISTORY_COLLECTION])
+    reranker = retrieval.Reranker() if retrieval.RERANK_ENABLED else None
 except Exception as e:
     logger.error(f"Failed to initialize models or clients on startup: {e}", exc_info=True)
     embeddings = None
@@ -98,6 +117,9 @@ except Exception as e:
     mongo_client = None
     project_config_store = None
     document_registry = None
+    session_store = None
+    ingest_history = None
+    reranker = None
 
 app = FastAPI(title="Knowledge Curator Service")
 
@@ -108,9 +130,6 @@ if ALLOWED_ORIGINS:
         allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=[API_KEY_HEADER, "Content-Type"],
     )
-
-splitter = MarkdownTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-
 
 @app.on_event("startup")
 def enforce_service_api_key():
@@ -189,6 +208,8 @@ class AnswerQuery(BaseModel):
     limit: int = 3
     use_online_model: int = 0  # 0 = Ollama (local), 1 = OpenAI gpt-4o-mini (online)
     filters: SearchFilters | None = None
+    session_id: str | None = None  # bật hội thoại nhiều lượt khi client gửi kèm
+    prompt_version: str | None = None  # mặc định theo PROMPT_VERSION (env)
 
 
 class IngestExcelRequest(BaseModel):
@@ -404,6 +425,20 @@ def _ensure_payload_indexes():
         )
     except Exception:
         pass
+    try:
+        # Full-text index over chunk text: powers the keyword half of hybrid search.
+        qdrant_client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="text",
+            field_schema=TextIndexParams(
+                type="text",
+                tokenizer=TokenizerType.WORD,
+                lowercase=True,
+                min_token_len=2,
+            ),
+        )
+    except Exception:
+        pass
 
 
 def _document_metadata(file_path: str) -> dict:
@@ -481,7 +516,7 @@ def _sync_document(file_path: str, force: bool, collection_ready: bool) -> tuple
             "version": old_version,
         }, collection_ready
 
-    chunks = splitter.split_text(text)
+    chunks = chunking.split_markdown(text, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
     if not chunks:
         deleted = _delete_by_filter(_document_filter(doc_id)) if collection_ready else 0
         return {
@@ -491,7 +526,7 @@ def _sync_document(file_path: str, force: bool, collection_ready: bool) -> tuple
             "deleted_points": deleted,
         }, collection_ready
 
-    vectors = embeddings.embed_documents(chunks)
+    vectors = embeddings.embed_documents([chunk.text for chunk in chunks])
     if not collection_ready:
         _ensure_collection(len(vectors[0]))
         collection_ready = True
@@ -504,16 +539,19 @@ def _sync_document(file_path: str, force: bool, collection_ready: bool) -> tuple
         collection_name=COLLECTION_NAME,
         points=[
             PointStruct(
-                id=_point_uuid(identity.chunk_id(doc_id, index, chunk)),
+                id=_point_uuid(identity.chunk_id(doc_id, index, chunk.text)),
                 vector=vector,
                 payload={
-                    "text": chunk,
+                    "text": chunk.text,
                     "source": file_path,
                     "document_id": doc_id,
                     "content_hash": new_hash,
                     "version": version,
                     "ingested_at": ingested_at,
                     "chunk_index": index,
+                    "heading": chunk.heading,
+                    "start_line": chunk.start_line,
+                    "end_line": chunk.end_line,
                     **metadata,
                 },
             )
@@ -543,7 +581,16 @@ def _sync_document(file_path: str, force: bool, collection_ready: bool) -> tuple
 _ingest_run_lock = threading.Lock()
 
 
-def _run_ingest(files: list[str], request: IngestRequest) -> dict:
+def _record_ingest_history(summary: dict, trigger: str) -> None:
+    if ingest_history is None:
+        return
+    try:
+        ingest_history.record(summary, trigger=trigger)
+    except Exception as e:
+        logger.error(f"Failed to record ingest history: {e}", exc_info=True)
+
+
+def _run_ingest(files: list[str], request: IngestRequest, trigger: str = "manual") -> dict:
     """Synchronize files with Qdrant, keeping the document registry up to date.
 
     Caller must hold _ingest_run_lock; it is released here when the run finishes.
@@ -608,7 +655,14 @@ def _run_ingest(files: list[str], request: IngestRequest) -> dict:
             if document_registry is not None:
                 document_registry.mark_removed_except(current_doc_ids)
     except Exception as e:
-        _set_ingest_status(status="failed", started_at=started_at, finished_at=_utc_now_iso(), error=str(e))
+        failure = {
+            "status": "failed",
+            "started_at": started_at,
+            "finished_at": _utc_now_iso(),
+            "error": str(e),
+        }
+        _set_ingest_status(**failure)
+        _record_ingest_history(failure, trigger)
         raise
     finally:
         _ingest_run_lock.release()
@@ -625,14 +679,40 @@ def _run_ingest(files: list[str], request: IngestRequest) -> dict:
         "pruned_points": pruned_points,
     }
     _set_ingest_status(**summary)
+    _record_ingest_history(summary, trigger)
     return summary
 
 
-def _run_ingest_in_background(files: list[str], request: IngestRequest) -> None:
+def _run_ingest_in_background(files: list[str], request: IngestRequest, trigger: str = "manual") -> None:
     try:
-        _run_ingest(files, request)
+        _run_ingest(files, request, trigger)
     except Exception as e:
         logger.error(f"Background ingest run failed: {e}", exc_info=True)
+
+
+def _trigger_auto_ingest(trigger: str) -> dict:
+    """Kick off a background ingest right after an export lands new Markdown.
+
+    Never raises: exports must not fail because indexing could not start.
+    """
+    if not AUTO_INGEST_AFTER_EXPORT:
+        return {"status": "disabled"}
+    if not embeddings or not qdrant_client:
+        return {"status": "unavailable", "detail": "Embeddings model or Qdrant client is not available."}
+
+    files = glob.glob(DOCS_GLOB, recursive=True)
+    if not files:
+        return {"status": "no_files"}
+    if not _ingest_run_lock.acquire(blocking=False):
+        return {"status": "already_running", "poll": "/ingest/status"}
+
+    threading.Thread(
+        target=_run_ingest_in_background,
+        args=(files, IngestRequest(), trigger),
+        daemon=True,
+        name="auto-ingest-worker",
+    ).start()
+    return {"status": "started", "trigger": trigger, "total_files": len(files), "poll": "/ingest/status"}
 
 
 @app.post("/ingest")
@@ -672,6 +752,14 @@ def get_ingest_status():
         return dict(_last_ingest_status)
 
 
+@app.get("/ingest/history")
+def get_ingest_history(limit: int = 20):
+    """Lịch sử các lần ingest (mới nhất trước), lưu bền trong MongoDB."""
+    if ingest_history is None:
+        raise HTTPException(status_code=503, detail="MongoDB ingest history is not available.")
+    return {"runs": ingest_history.list_runs(limit=max(1, min(limit, 100)))}
+
+
 def _require_document_registry() -> DocumentRegistry:
     if document_registry is None:
         raise HTTPException(status_code=503, detail="MongoDB document registry is not available.")
@@ -696,65 +784,198 @@ def requeue_dead_letter(document_id: str | None = None):
     return {"requeued": requeued}
 
 
-@app.post("/search")
-def search_documents(search_query: SearchQuery) -> list:
-    if not embeddings or not qdrant_client:
-        raise HTTPException(status_code=503, detail="Embeddings model or Qdrant client is not available.")
+def _candidate_from_payload(point_id, payload: dict, vector_score: float | None = None) -> dict:
+    return {
+        "id": str(point_id),
+        "text": payload.get("text"),
+        "source": payload.get("source"),
+        "heading": payload.get("heading", ""),
+        "start_line": payload.get("start_line"),
+        "end_line": payload.get("end_line"),
+        "vector_score": vector_score,
+        "keyword_score": None,
+    }
 
-    query_vector = embeddings.embed_query(search_query.query)
+
+def _dense_candidates(query: str, pool: int, query_filter: Filter | None) -> list[dict]:
+    query_vector = embeddings.embed_query(query)
     results = qdrant_client.query_points(
         collection_name=COLLECTION_NAME,
         query=query_vector,
-        limit=search_query.limit,
-        query_filter=_build_search_filter(search_query.filters),
+        limit=pool,
+        query_filter=query_filter,
     )
+    return [_candidate_from_payload(r.id, r.payload or {}, vector_score=r.score) for r in results.points]
 
+
+def _keyword_candidates(query: str, pool: int, query_filter: Filter | None) -> list[dict]:
+    """Full-text candidates via the Qdrant text index, scored locally with BM25."""
+    terms = retrieval.query_terms(query)
+    if not terms:
+        return []
+    text_filter = Filter(should=[FieldCondition(key="text", match=MatchText(text=term)) for term in terms])
+    combined = Filter(must=[query_filter, text_filter]) if query_filter else text_filter
+    try:
+        points, _ = qdrant_client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=combined,
+            limit=pool,
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as e:
+        logger.warning(f"Keyword search unavailable, falling back to dense-only: {e}")
+        return []
+
+    candidates = [_candidate_from_payload(p.id, p.payload or {}) for p in points]
+    scores = retrieval.bm25_scores(terms, [c["text"] or "" for c in candidates])
+    for candidate, score in zip(candidates, scores):
+        candidate["keyword_score"] = score
+    candidates = [c for c in candidates if (c["keyword_score"] or 0) > 0]
+    candidates.sort(key=lambda c: c["keyword_score"], reverse=True)
+    return candidates[:pool]
+
+
+def _retrieve(query: str, limit: int, filters: SearchFilters | None) -> tuple[list[dict], dict]:
+    """Hybrid retrieval pipeline. Returns (matches, retrieval_info)."""
+    if not embeddings or not qdrant_client:
+        raise HTTPException(status_code=503, detail="Embeddings model or Qdrant client is not available.")
+
+    query_filter = _build_search_filter(filters)
+    pool = max(limit * retrieval.CANDIDATE_POOL_MULTIPLIER, 20)
+
+    dense = _dense_candidates(query, pool, query_filter)
+    keyword = _keyword_candidates(query, pool, query_filter) if retrieval.HYBRID_SEARCH_ENABLED else []
+    # Rerank looks at a wider pool than the final limit so it can rescue candidates.
+    rerank_pool = limit * 2 if reranker else limit
+    fused = retrieval.fuse_candidates(dense, keyword, limit=max(rerank_pool, limit))
+
+    reranked = bool(reranker) and reranker.rerank(query, fused)
+    kept = retrieval.apply_threshold(fused, use_rerank_floor=reranked)[:limit]
+
+    info = {
+        "mode": "hybrid" if keyword else "dense",
+        "reranked": reranked,
+        "min_score": retrieval.MIN_RERANK_SCORE if reranked else retrieval.MIN_SCORE_THRESHOLD,
+        "candidates": {"dense": len(dense), "keyword": len(keyword)},
+        "dropped_below_threshold": len(fused) - len(retrieval.apply_threshold(fused, use_rerank_floor=reranked)),
+    }
+    return kept, info
+
+
+@app.post("/search")
+def search_documents(search_query: SearchQuery) -> list:
+    matches, _ = _retrieve(search_query.query, search_query.limit, search_query.filters)
     return [
-        {"text": r.payload.get("text"), "source": r.payload.get("source"), "score": r.score}
-        for r in results.points
+        {
+            "text": m["text"],
+            "source": m["source"],
+            "heading": m["heading"],
+            "start_line": m["start_line"],
+            "end_line": m["end_line"],
+            "score": retrieval.relevance_score(m),
+            "vector_score": m.get("vector_score"),
+            "keyword_score": m.get("keyword_score"),
+            "rerank_score": m.get("rerank_score"),
+        }
+        for m in matches
     ]
 
 
 @app.post("/answer")
 def get_answer(answer_query: AnswerQuery):
     use_online = answer_query.use_online_model == 1
+    client, model = _select_chat_client(answer_query.use_online_model)
 
-    if use_online:
-        if not openai_client:
-            raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured.")
-        client, model = openai_client, OPENAI_MODEL
-    else:
-        if not ollama_client:
-            raise HTTPException(status_code=503, detail="Ollama client is not available.")
-        client, model = ollama_client, OLLAMA_MODEL
+    prompt_version = answer_query.prompt_version or prompts.DEFAULT_PROMPT_VERSION
+    if prompt_version not in prompts.available_versions():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown prompt_version '{prompt_version}'. Available: {prompts.available_versions()}",
+        )
 
-    matches = search_documents(
-        SearchQuery(query=answer_query.question, limit=answer_query.limit, filters=answer_query.filters)
-    )
+    matches, retrieval_info = _retrieve(answer_query.question, answer_query.limit, answer_query.filters)
     if not matches:
-        raise HTTPException(status_code=404, detail="No relevant documents found for this question.")
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No documents passed the relevance threshold for this question; "
+                "refusing to answer from unrelated context."
+            ),
+        )
 
-    context = "\n\n".join(f"[{m['source']}]\n{m['text']}" for m in matches)
-    prompt = (
-        "You are a project assistant. Answer the question using ONLY the context below. "
-        "If the answer isn't in the context, say you don't know.\n\n"
-        f"Context:\n{context}\n\nQuestion: {answer_query.question}"
+    citations = []
+    context_blocks = []
+    sanitized_any = False
+    for index, m in enumerate(matches, start=1):
+        clean_text, modified = guardrails.sanitize_chunk(m["text"] or "")
+        sanitized_any = sanitized_any or modified
+        lines = f"{m['start_line']}-{m['end_line']}" if m.get("start_line") else "?"
+        context_blocks.append(
+            guardrails.render_context_block(index, m["source"], m["heading"], lines, clean_text)
+        )
+        citations.append(
+            {
+                "context_id": f"context-{index}",
+                "source": m["source"],
+                "heading": m["heading"],
+                "start_line": m.get("start_line"),
+                "end_line": m.get("end_line"),
+                "score": retrieval.relevance_score(m),
+            }
+        )
+
+    messages = prompts.build_messages(
+        prompt_version, context="\n\n".join(context_blocks), question=answer_query.question
     )
+    if answer_query.session_id and session_store is not None:
+        # Insert prior turns between the system message (if any) and the final user message.
+        turns = session_store.get_turns(answer_query.session_id, SESSION_CONTEXT_TURNS)
+        if turns:
+            messages = messages[:-1] + history_messages(turns) + messages[-1:]
 
     try:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        completion = client.chat.completions.create(model=model, messages=messages)
     except Exception as e:
         logger.error(f"Chat completion failed (model={model}, online={use_online}): {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Failed to get response from model '{model}'.")
 
+    answer_text = completion.choices[0].message.content
+    if answer_query.session_id and session_store is not None:
+        try:
+            session_store.append_turn(answer_query.session_id, answer_query.question, answer_text)
+        except Exception as e:
+            logger.error(f"Failed to persist session turn: {e}", exc_info=True)
+
     return {
-        "answer": completion.choices[0].message.content,
+        "answer": answer_text,
         "sources": [m["source"] for m in matches],
+        "citations": citations,
         "model_used": model,
+        "prompt_version": prompt_version,
+        "session_id": answer_query.session_id,
+        "retrieval": retrieval_info,
+        "context_sanitized": sanitized_any,
     }
+
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str):
+    if session_store is None:
+        raise HTTPException(status_code=503, detail="MongoDB session store is not available.")
+    session = session_store.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    return session
+
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+    if session_store is None:
+        raise HTTPException(status_code=503, detail="MongoDB session store is not available.")
+    if not session_store.delete_session(session_id):
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    return {"deleted": True, "session_id": session_id}
 
 
 def _select_chat_client(use_online_model: int):
@@ -816,7 +1037,8 @@ def ingest_excel(request: IngestExcelRequest):
             logger.error(f"Failed to process '{name}': {e}", exc_info=True)
             failed.append({"file": name, "error": str(e)})
 
-    return {"processed": processed, "skipped": skipped, "failed": failed}
+    auto_ingest = _trigger_auto_ingest("excel_export") if processed else {"status": "skipped"}
+    return {"processed": processed, "skipped": skipped, "failed": failed, "auto_ingest": auto_ingest}
 
 
 @app.post("/ingest-excel/upload")
@@ -848,7 +1070,7 @@ async def ingest_excel_upload(use_online_model: int = 0, file: UploadFile = File
     manifest_store.record_success(manifest, file.filename, content_hash, result["output_md"], result["image_count"])
     manifest_store.save_manifest(EXCEL_OUTPUT_DIR, manifest)
 
-    return {"file": file.filename, **result}
+    return {"file": file.filename, **result, "auto_ingest": _trigger_auto_ingest("excel_upload")}
 
 
 @app.post("/ingest-spreadsheet")
@@ -902,6 +1124,7 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
         "source_id": result.source_id,
         "artifact_id": result.artifact_id,
         "output_md": result.output_md,
+        "auto_ingest": _trigger_auto_ingest("notebooklm_export"),
     }
 
 

@@ -69,6 +69,29 @@ NotebookLM rất mạnh ở việc:
 
 ## Setup / Vận hành
 
+### Ingest tài liệu vào Qdrant
+
+`POST /ingest` đồng bộ Markdown trong `docs/imported/` với Qdrant: point ID định danh theo tài liệu,
+skip theo `content_hash`, tự xóa vector của file đã xóa, registry trạng thái trong MongoDB với
+retry/dead-letter, hỗ trợ chạy background và search có metadata filter
+(`project` / `environment` / `document_type` / `version`).
+
+Chi tiết endpoint, payload và cấu hình: xem [docs/Knowledge-Ingestion.md](docs/Knowledge-Ingestion.md).
+
+```bash
+# Ingest toàn bộ (chạy nền, theo dõi qua /ingest/status)
+curl -X POST http://localhost:8002/ingest \
+  -H "X-API-Key: $SERVICE_API_KEY" -H "Content-Type: application/json" \
+  -d '{"force": false, "background": true}'
+```
+
+Health check: `/health/live` (process sống) và `/health/ready` (kiểm tra Qdrant, MongoDB,
+embedding model, AI provider — trả 503 khi dependency lỗi).
+
+Bảo mật: service không khởi động nếu thiếu `SERVICE_API_KEY`; rate limit theo IP
+(`RATE_LIMIT_PER_MINUTE`, mặc định 120/phút); giới hạn upload (`MAX_UPLOAD_SIZE_MB`, mặc định 20 MB);
+CORS chỉ bật khi khai báo `ALLOWED_ORIGINS`; container chạy non-root (uid 1000).
+
 ### Cấu hình API key cho script CLI
 
 Các script gọi API không lưu API key trong source. Cần cấu hình biến môi trường trước khi chạy:

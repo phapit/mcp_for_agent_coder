@@ -83,3 +83,18 @@ Kiến trúc hệ thống bao gồm các thành phần chính tương tác với
 - **Qdrant (Vector Store)**: Lưu trữ các embeddings của tài liệu, cho phép AI Agent tìm kiếm và truy xuất thông tin ngữ nghĩa một cách nhanh chóng.
 - **Code Analyzer & AI Developer**: Các agent thực thi việc phân tích mã nguồn và phát triển tính năng mới.
 - **Git Repository**: Nơi lưu trữ mã nguồn và các thay đổi do AI Agent tạo ra.
+
+## Pipeline ingest & vận hành (cập nhật 2026-07)
+
+- **Đồng bộ Qdrant an toàn**: point ID định danh theo tài liệu, payload có `document_id` /
+  `content_hash` / `version` / `ingested_at` / `project` / `environment` / `document_type`;
+  skip theo hash, thay thế chunk cũ khi nội dung đổi, prune vector của file đã xóa.
+- **Document registry (MongoDB)**: trạng thái từng tài liệu (ingested / failed / dead_letter /
+  removed) với retry và dead-letter theo `MAX_INGEST_ATTEMPTS`.
+- **Background worker**: `POST /ingest {"background": true}` trả 202, theo dõi qua `/ingest/status`.
+- **Health check**: `/health/live` và `/health/ready` (kiểm tra Qdrant, MongoDB, embedding model,
+  AI provider) trên cả hai service; docker-compose có healthcheck tương ứng.
+- **Bảo mật**: bắt buộc `SERVICE_API_KEY` (fail-fast lúc khởi động), rate limit theo IP,
+  giới hạn kích thước upload, CORS khai báo tường minh, container chạy non-root (uid 1000).
+
+Chi tiết: [Knowledge-Ingestion.md](Knowledge-Ingestion.md).
