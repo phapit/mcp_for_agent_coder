@@ -120,6 +120,16 @@ class ProjectConfigStore:
                 configs.append(config)
         return configs
 
+    def list_all_configs(self) -> list[ProjectNotebookConfig]:
+        cursor = self.collection.find({}, {"_id": 0})
+        configs = []
+        for document in cursor:
+            config = _serialize(document)
+            if config is not None:
+                configs.append(config)
+        configs.sort(key=lambda config: (config.project_name, config.notebook_env))
+        return configs
+
     def delete_config(self, project_name: str, notebook_env: str) -> bool:
         result = self.collection.delete_one({"project_name": project_name, "notebook_env": notebook_env})
         return bool(getattr(result, "deleted_count", 0))

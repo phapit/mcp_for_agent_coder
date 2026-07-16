@@ -1,6 +1,6 @@
 # .gitignore for pyhon
 .idea
-/venv/
+.venv/
 data/*
 .vs/
 tests/*
@@ -11,3 +11,11 @@ tests/*
 *$py.class
 logs/*
 excel_sources/
+ollama_data
+qdrant_storage
+docs/notebooklm-py
+docs/imported
+mongo_data/*
+notebooklm_auth/*
+secrets/
+.claude

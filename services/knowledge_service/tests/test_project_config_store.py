@@ -23,7 +23,7 @@ class FakeCollection:
     def find(self, filter, projection=None):
         items = []
         for document in self.documents.values():
-            if document["project_name"] == filter["project_name"]:
+            if "project_name" not in filter or document["project_name"] == filter["project_name"]:
                 items.append(_project(document, projection))
         return items
 
@@ -68,6 +68,21 @@ def test_list_configs_by_project():
 
     assert len(configs) == 2
     assert sorted(config.notebook_env for config in configs) == ["env-a", "env-b"]
+
+
+def test_list_all_configs_across_projects_sorted():
+    store = ProjectConfigStore(FakeCollection())
+    store.upsert_config("project-b", "env-a", "nb-3", "team-c.json")
+    store.upsert_config("project-a", "env-b", "nb-2", "team-b.json")
+    store.upsert_config("project-a", "env-a", "nb-1", "team-a.json")
+
+    configs = store.list_all_configs()
+
+    assert [(c.project_name, c.notebook_env) for c in configs] == [
+        ("project-a", "env-a"),
+        ("project-a", "env-b"),
+        ("project-b", "env-a"),
+    ]
 
 
 def test_get_config_raises_when_missing():

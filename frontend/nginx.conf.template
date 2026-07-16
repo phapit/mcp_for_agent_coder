@@ -1,0 +1,44 @@
+# Proxy API + phục vụ SPA. ${SERVICE_API_KEY} được envsubst thay lúc container khởi động.
+# Dùng resolver của Docker + biến trong proxy_pass để nginx phân giải DNS lúc request,
+# tránh chết khi backend chưa sẵn sàng lúc nginx khởi động.
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Cho phép upload lớn (vd /ingest-excel/upload, backend giới hạn ~20MB).
+    client_max_body_size 25m;
+
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # ---- knowledge_service ----
+    location /api/knowledge/ {
+        set $kn_upstream knowledge_service;
+        rewrite ^/api/knowledge/(.*)$ /$1 break;
+        proxy_pass http://$kn_upstream:8002;
+        proxy_set_header X-API-Key "${SERVICE_API_KEY}";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+    }
+
+    # ---- agent_service ----
+    location /api/agent/ {
+        set $ag_upstream agent_service;
+        rewrite ^/api/agent/(.*)$ /$1 break;
+        proxy_pass http://$ag_upstream:8003;
+        proxy_set_header X-API-Key "${SERVICE_API_KEY}";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 300s;
+    }
+
+    # ---- SPA (vue-router history mode) ----
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

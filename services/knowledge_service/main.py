@@ -1310,6 +1310,18 @@ def upsert_project_notebook_config(request: ProjectNotebookConfigUpsertRequest):
     return config.__dict__
 
 
+@app.get("/project-notebook-configs")
+def list_all_project_notebook_configs():
+    store = _require_project_config_store()
+    grouped: dict[str, list[dict]] = {}
+    for config in store.list_all_configs():
+        grouped.setdefault(config.project_name, []).append(config.__dict__)
+    return [
+        {"project_name": project_name, "config_count": len(configs), "configs": configs}
+        for project_name, configs in grouped.items()
+    ]
+
+
 @app.get("/project-notebook-configs/{project_name}")
 def list_project_notebook_configs(project_name: str):
     store = _require_project_config_store()

@@ -1,0 +1,49 @@
+# Frontend UI để kiểm thử. Chạy độc lập, join network sẵn có của backend stack.
+#
+# Yêu cầu: backend stack (docker-compose.yml) đã chạy → network
+# obsidian-wiki_ai_agent_net và docker_global_bridge đã tồn tại.
+#
+# Chạy:
+#   docker compose -f ui.docker-compose.yml up -d --build
+# Truy cập:
+#   http://localhost:${UI_PORT:-8080}   (hoặc http://wiki-ui.mcp.local qua nginx-proxy)
+# Dừng:
+#   docker compose -f ui.docker-compose.yml down
+name: obsidian-wiki-ui
+services:
+  frontend_ui:
+    build:
+      context: ./frontend
+    container_name: wiki_frontend
+    environment:
+      # Key chỉ nằm ở nginx (server-side), được inject vào header X-API-Key khi proxy.
+      - SERVICE_API_KEY=${SERVICE_API_KEY}
+      # Cho nginx-proxy (docker_global_bridge) phục vụ theo hostname.
+      - VIRTUAL_HOST=${UI_HOST:-wiki-ui.mcp.local}
+      - VIRTUAL_PROTO=http
+      - VIRTUAL_PORT=80
+      - HTTPS_METHOD=noredirect
+      - CERT_NAME=default.local
+    env_file:
+      - .env
+    ports:
+      - "${UI_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      # Để gọi knowledge_service:8002 / agent_service:8003 theo tên (không cần host port).
+      - ai_agent_net
+      # Để nginx-proxy nhìn thấy (VIRTUAL_HOST).
+      - shared_network
+
+networks:
+  ai_agent_net:
+    external: true
+    name: obsidian-wiki_ai_agent_net
+  shared_network:
+    external: true
+    name: docker_global_bridge
