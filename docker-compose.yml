@@ -14,21 +14,26 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.14.1
     container_name: qdrant_db
+    # Chỉ bind loopback: container nội bộ gọi qua ai_agent_net,
+    # host chỉ truy cập được từ chính máy này (kèm API key).
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY}
     volumes:
-      - ./qdrant_storage:/qdrant/storage
+      - ./app_data/qdrant_storage:/qdrant/storage
     networks:
       - ai_agent_net
 
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    # Không có xác thực → không publish ra LAN, chỉ bind loopback cho debug từ host.
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
-      - ./ollama_data:/root/.ollama
+      - ./app_data/ollama_data:/root/.ollama
     networks:
       # Alias riêng để tránh trùng tên "ollama" với container khác trên
       # docker_global_bridge (backend-ollama-1) khiến DNS trỏ nhầm.
@@ -44,6 +49,7 @@ services:
       - "${KNOWLEDGE_SERVICE_PORT:-8002}"
     environment:
       - SERVICE_API_KEY=${SERVICE_API_KEY}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_BASE_URL=http://wiki-ollama:11434/v1
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama2:7b}
@@ -85,7 +91,13 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app/project_data
+      - ./app_data/secrets:/app/project_data/secrets
+      - ./scripts:/app/project_data/scripts
+      - ./services:/app/project_data/services
+      - ./app_data/notebooklm_auth:/app/project_data/notebooklm_auth
+      - ./docs:/app/project_data/docs
+      - ./app_data/excel_sources:/app/project_data/excel_sources
+
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${KNOWLEDGE_SERVICE_PORT:-8002}/health/ready', timeout=5)"]
       interval: 30s
@@ -119,7 +131,8 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app/project_data
+      - ./scripts:/app/project_data/scripts
+      - ./services:/app/project_data/services
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${AGENT_SERVICE_PORT:-8003}/health/ready', timeout=5)"]
       interval: 30s

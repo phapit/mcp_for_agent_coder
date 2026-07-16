@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "project_docs")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -98,7 +99,7 @@ DEPENDENCY_CHECK_TIMEOUT = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", 5.0))
 # --- Initialize Global Objects ---
 try:
     embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, api_key=QDRANT_API_KEY, https=False)
     openai_client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
     ollama_client = openai.OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
     mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=int(DEPENDENCY_CHECK_TIMEOUT * 1000))
