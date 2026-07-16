@@ -52,6 +52,11 @@ services:
       - NOTEBOOKLM_AUTH_DIR=/app/project_data/notebooklm_auth
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:2017}
       - MONGODB_DB_NAME=${MONGODB_DB_NAME:-knowledge_service}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-120}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-20}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - ENVIRONMENT=${ENVIRONMENT:-local}
+      - MAX_INGEST_ATTEMPTS=${MAX_INGEST_ATTEMPTS:-3}
       - VIRTUAL_HOST=knowledge-api.mcp.local
       - VIRTUAL_PROTO=http
       - VIRTUAL_PORT=8002
@@ -61,6 +66,12 @@ services:
       - .env
     volumes:
       - .:/app/project_data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     depends_on:
       - qdrant
       - ollama
@@ -76,6 +87,9 @@ services:
       - "8003"
     environment:
       - SERVICE_API_KEY=${SERVICE_API_KEY}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-120}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - KNOWLEDGE_SERVICE_URL=http://knowledge_service:8002
       - VIRTUAL_HOST=agent-api.mcp.local
       - VIRTUAL_PROTO=http
       - VIRTUAL_PORT=8003
@@ -85,6 +99,12 @@ services:
       - .env
     volumes:
       - .:/app/project_data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     depends_on:
       - qdrant
       - knowledge_service

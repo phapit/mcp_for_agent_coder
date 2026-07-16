@@ -1,10 +1,13 @@
 import os
 import logging
 import secrets
+import threading
+import time
 
 import httpx
 import git
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -16,7 +19,10 @@ PROJECT_PATH = os.getenv("PROJECT_PATH", "/app/project_data")
 KNOWLEDGE_SERVICE_URL = os.getenv("KNOWLEDGE_SERVICE_URL", "http://knowledge_service:8000")
 SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "").strip()
 API_KEY_HEADER = "X-API-Key"
-EXEMPT_PATHS = {"/health"}
+EXEMPT_PATHS = {"/health", "/health/live", "/health/ready"}
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", 120))
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+DEPENDENCY_CHECK_TIMEOUT = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", 5.0))
 
 # --- Initialize Global Objects ---
 try:
@@ -29,6 +35,22 @@ except Exception as e:
     repo = None
 
 app = FastAPI(title="AI Developer Agent Service")
+
+if ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_methods=["GET", "POST"],
+        allow_headers=[API_KEY_HEADER, "Content-Type"],
+    )
+
+
+@app.on_event("startup")
+def enforce_service_api_key():
+    if not SERVICE_API_KEY:
+        raise RuntimeError(
+            "SERVICE_API_KEY must be set to a non-empty value. Refusing to start agent_service."
+        )
 
 
 @app.middleware("http")
@@ -45,6 +67,32 @@ async def require_api_key(request: Request, call_next):
     return await call_next(request)
 
 
+_rate_buckets: dict[str, tuple[float, int]] = {}
+_rate_lock = threading.Lock()
+
+
+@app.middleware("http")
+async def limit_request_rate(request: Request, call_next):
+    if request.url.path in EXEMPT_PATHS or RATE_LIMIT_PER_MINUTE <= 0:
+        return await call_next(request)
+
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    with _rate_lock:
+        window_start, count = _rate_buckets.get(client_ip, (now, 0))
+        if now - window_start >= 60.0:
+            window_start, count = now, 0
+        count += 1
+        _rate_buckets[client_ip] = (window_start, count)
+    if count > RATE_LIMIT_PER_MINUTE:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Please retry later."},
+            headers={"Retry-After": str(int(60 - (now - window_start)) + 1)},
+        )
+    return await call_next(request)
+
+
 class BranchName(BaseModel):
     name: str = Field(..., description="The name of the new git branch.", pattern=r"^[a-zA-Z0-9._-]+$")
 
@@ -55,8 +103,29 @@ class ConsultQuery(BaseModel):
 
 
 @app.get("/health")
-def health_check():
+@app.get("/health/live")
+def health_live():
+    """Liveness: the process is up and can serve HTTP."""
     return {"status": "ok", "service": "agent_service"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """Readiness: git repo mounted and knowledge_service reachable."""
+    checks = {"git_repo": "ok" if repo else "not_available"}
+
+    try:
+        async with httpx.AsyncClient(timeout=DEPENDENCY_CHECK_TIMEOUT) as client:
+            response = await client.get(f"{KNOWLEDGE_SERVICE_URL}/health/live")
+            checks["knowledge_service"] = "ok" if response.status_code == 200 else f"http_{response.status_code}"
+    except httpx.HTTPError as e:
+        checks["knowledge_service"] = f"unreachable: {e}"
+
+    ready = all(value == "ok" for value in checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not_ready", "service": "agent_service", "checks": checks},
+    )
 
 
 @app.get("/")

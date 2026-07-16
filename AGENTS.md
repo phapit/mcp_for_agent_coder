@@ -28,6 +28,13 @@ Nguyên tắc độc lập: Mỗi thành viên hoạt động độc lập, khô
 5. Chính sách Bug: Không bao giờ lặp lại cùng một bug. Mỗi bug phải được phân tích root-cause và ghi lại cách sửa. Theo dõi toàn bộ bug với số liệu: phát hiện vs. đã sửa.
 6. Có toàn quyền sử dụng các câu lệnh trong workspace/path hiện tại:
  - workspace/path (`working dir`) hiện tại là `/mnt/ProjectsAndData/Obsidian-Wiki`. việc đầu tiên là phải cd tới workspace/path hiện tại.
+ - tuyệt đối không được tự ý scan, chỉnh sửa, xóa các folder/files trong danh sách sau: 
+  + `docs/imported` 
+  + `excel_sources` 
+  + `mongo_data` 
+  + `notebooklm_auth` 
+  + `ollama_data` 
+  + `qdrant_storage`
  - cho phép sử dụng các câu lệnh docker (compose, network, build, run, exec, ...), bash/sh, find, wc, ls, cat, grep, echo, git, python, while, do, for, mv, cp, sed, tee trong workspace/path hiện tại.
  - Khi cần tạo file tạm thì hãy tạo trong path temp của workspace/path hiện tại và có toàn quyền đọc, chỉnh sửa, xóa những file trong folder temp này.
  - Cho phép sử dụng câu lệnh wget, curl đối với 17.17.0.1/32, localhost, 127.0.0.1/32.
