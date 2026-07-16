@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 HYBRID_SEARCH_ENABLED = os.getenv("HYBRID_SEARCH_ENABLED", "1") == "1"
 RERANK_ENABLED = os.getenv("RERANK_ENABLED", "0") == "1"
-RERANK_MODEL = os.getenv("RERANK_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+# Mặc định model đa ngôn ngữ: bản ms-marco (EN-only) chấm câu hỏi tiếng Việt < 0.3
+# khiến ngưỡng loại hết kết quả (đo 2026-07-16: hit rate 0% vs 100% với mmarco).
+RERANK_MODEL = os.getenv("RERANK_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
 # Cosine similarity floor for dense matches (all-MiniLM cosine; tune via eval set).
 MIN_SCORE_THRESHOLD = float(os.getenv("MIN_SCORE_THRESHOLD", 0.35))
 # Probability floor (sigmoid of cross-encoder logit) when the reranker is on.

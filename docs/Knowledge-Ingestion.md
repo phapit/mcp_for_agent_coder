@@ -108,7 +108,7 @@ Nhóm tính năng khắc phục postmortem "semantic search lấy sai context".
 
 ### Hybrid search + rerank + ngưỡng điểm
 - `/search` chạy song song **dense** (vector cosine) và **keyword** (full-text index của Qdrant trên field `text`, chấm BM25 cục bộ), trộn bằng **RRF**. Ứng viên chỉ có keyword phải đạt ≥ 50% điểm keyword cao nhất mới được giữ.
-- **Rerank** (tùy chọn, `RERANK_ENABLED=1`): cross-encoder `RERANK_MODEL` chấm lại cặp (câu hỏi, chunk), điểm sigmoid 0–1.
+- **Rerank** (tùy chọn, `RERANK_ENABLED=1`): cross-encoder `RERANK_MODEL` (mặc định `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`, đa ngôn ngữ — bắt buộc vì câu hỏi tiếng Việt; bản ms-marco EN-only làm hit rate về 0%) chấm lại cặp (câu hỏi, chunk), điểm sigmoid 0–1.
 - **Ngưỡng điểm**: `MIN_SCORE_THRESHOLD` (cosine, mặc định 0.35) hoặc `MIN_RERANK_SCORE` (mặc định 0.3) khi rerank bật. `/answer` trả 404 thay vì trả lời từ context không đạt ngưỡng.
 - Env: `HYBRID_SEARCH_ENABLED`, `RERANK_ENABLED`, `RERANK_MODEL`, `MIN_SCORE_THRESHOLD`, `MIN_RERANK_SCORE`, `CANDIDATE_POOL_MULTIPLIER`, `RRF_K`.
 
@@ -137,3 +137,18 @@ Nhóm tính năng khắc phục postmortem "semantic search lấy sai context".
 ### Đánh giá chất lượng RAG
 - Bộ câu hỏi chuẩn: `eval/golden_questions.json` (có cả câu ngoài phạm vi để đo khả năng từ chối).
 - Chạy: `KNOWLEDGE_URL=http://localhost:8002 SERVICE_API_KEY=... python scripts/rag_eval.py` → in `retrieval_hit_rate`, `answer_pass_rate`, `refusal_rate`; exit code ≠ 0 nếu có câu fail. Dùng `--skip-answer` nếu chỉ đo retrieval.
+- Port host của knowledge_service do Docker cấp ngẫu nhiên: `docker port knowledge_service 8002`.
+
+### Kết quả kiểm thử 2026-07-16 (bộ 6 câu hỏi chuẩn)
+
+| Cấu hình | Retrieval hit rate | Refusal rate | Answer pass rate |
+|---|---|---|---|
+| Rerank OFF (baseline) | 50% | 100% | — |
+| Rerank ON — `ms-marco` (EN-only) | **0%** ❌ | 100% | — |
+| Rerank ON — `mmarco-mMiniLMv2` (đa ngôn ngữ) | **100%** ✅ | 100% | 50% |
+
+Kết luận và cấu hình khuyến nghị:
+- **`RERANK_ENABLED=1`** (set trong `.env`; mặc định compose vẫn là 0) + **`RERANK_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`** (đã là mặc định trong compose và code). Reranker bắt buộc phải đa ngôn ngữ vì câu hỏi tiếng Việt trên tài liệu tiếng Anh — bản EN-only chấm mọi ứng viên < `MIN_RERANK_SCORE=0.3` nên ngưỡng loại sạch kết quả (xem postmortem 2026-07-16).
+- Answer pass rate 50% là giới hạn của model sinh local `llama3.2:3b` (retrieval đã trúng 100%, context có đáp án nhưng model 3B đôi khi vẫn trả lời "không tìm thấy" với câu hỏi Việt/tài liệu Anh). Hướng cải thiện: `use_online_model=1` (gpt-4o-mini) hoặc nâng model local mạnh tiếng Việt hơn (ví dụ `qwen2.5:7b`).
+- Câu ngoài phạm vi (thời tiết, nấu ăn) bị từ chối 2/2 ở mọi cấu hình — ngưỡng điểm hoạt động đúng.
+- Toàn bộ biến cấu hình và giải thích: xem `.env.example` ở root repo.

@@ -5,6 +5,32 @@ theo [[Business-Rules]] ("không bao giờ lặp lại cùng một bug").
 
 ---
 
+## 2026-07-16 — DNS "ollama" trỏ nhầm container trên mạng chung
+
+**Hiện tượng**: `/answer` với model local (`use_online_model=0`) luôn trả 502; log knowledge_service ghi `model 'llama3.2:3b' not found` dù `docker exec ollama` xác nhận model đã pull.
+
+**Root cause**: knowledge_service tham gia đồng thời 2 mạng (`ai_agent_net` và `docker_global_bridge`). Container `backend-ollama-1` của một project khác có alias `ollama` trên `docker_global_bridge`, nên Docker DNS resolve tên `ollama` sang container đó (172.18.0.14) thay vì ollama của repo (172.20.0.3). Container nhầm không có model `llama3.2:3b`.
+
+**Tác động**: Toàn bộ tính năng trả lời bằng LLM local không hoạt động; chỉ đường online (OpenAI) dùng được. Lỗi tồn tại âm thầm vì health-check `/health/ready` chỉ kiểm tra endpoint `/models` trả HTTP < 500, không kiểm tra model cụ thể.
+
+**Cách xử lý**: Thêm alias riêng `wiki-ollama` cho service ollama trên `ai_agent_net` và đổi `OLLAMA_BASE_URL=http://wiki-ollama:11434/v1` trong `docker-compose.yml`; recreate 2 container. Xác minh bằng `socket.gethostbyname('wiki-ollama')` từ trong container.
+
+**Hành động phòng ngừa**: Không dùng tên generic (`ollama`, `mongodb`, `kafka`…) làm hostname khi container tham gia mạng chung nhiều project — luôn đặt alias có prefix project. Khi debug lỗi "model not found", kiểm tra DNS resolve trước khi nghi ngờ dữ liệu.
+
+---
+
+## 2026-07-16 — Bật rerank với model EN-only làm mất toàn bộ kết quả tìm kiếm
+
+**Hiện tượng**: Sau khi bật `RERANK_ENABLED=1` với model mặc định ban đầu `cross-encoder/ms-marco-MiniLM-L-6-v2`, mọi câu hỏi tiếng Việt qua `/search`, `/answer` trả về rỗng/404. Đo bằng bộ eval chuẩn: retrieval hit rate rơi từ 50% (không rerank) xuống 0%.
+
+**Root cause**: ms-marco cross-encoder chỉ được huấn luyện trên tiếng Anh; với cặp (câu hỏi tiếng Việt, chunk tiếng Anh) nó chấm xác suất < 0.3 cho mọi ứng viên, khiến ngưỡng `MIN_RERANK_SCORE=0.3` loại hết kết quả trước khi vào context.
+
+**Cách xử lý**: Đổi sang model đa ngôn ngữ `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (mặc định mới trong `docker-compose.yml` và `retrieval.py`). Kết quả eval: retrieval hit rate 100%, refusal rate câu ngoài phạm vi 100% (chi tiết: `docs/Knowledge-Ingestion.md` §7).
+
+**Hành động phòng ngừa**: Mọi thay đổi model trong pipeline retrieval (embedding, reranker) phải chạy `scripts/rag_eval.py` trước/sau để so sánh, vì bộ eval có sẵn câu hỏi tiếng Việt sẽ lộ ngay vấn đề ngôn ngữ. Ghi rõ ràng buộc "đa ngôn ngữ" trong `.env.example`.
+
+---
+
 ## 2026-07-15 — Câu hỏi Session cần đủ ngữ cảnh
 
 **Hiện tượng**: Với câu hỏi ngắn `Session tồn tại tối đa bao nhiêu ngày?`, `/answer` có thể trả lời không biết. Khi bổ sung ngữ cảnh rõ ràng như `Session duration 28 days guest registered users`, service trả lời đúng `28 ngày`.

@@ -1,0 +1,39 @@
+{
+  "description": "Bộ câu hỏi chuẩn để đánh giá chất lượng RAG của knowledge_service. Chạy: python scripts/rag_eval.py",
+  "questions": [
+    {
+      "id": "session-duration",
+      "question": "Thời hạn session của người dùng trong hệ thống e-learning Pocket là bao lâu?",
+      "expected_source_substring": "SS_e-learning_app_backend_specification",
+      "expected_keywords": ["28"]
+    },
+    {
+      "id": "special-user",
+      "question": "Special User là gì và điều kiện để tạo Special User?",
+      "expected_source_substring": "SS_e-learning_app_backend_specification",
+      "expected_keywords": ["Normal User"]
+    },
+    {
+      "id": "youtube-workflow",
+      "question": "Quy trình duyệt nội dung YouTube video trong app Pocket gồm những bước nào?",
+      "expected_source_substring": "SS_e-learning_app_backend_specification",
+      "expected_keywords": ["approv"]
+    },
+    {
+      "id": "error-report-login",
+      "question": "Khi khách hàng báo lỗi liên quan đến login thì cần thu thập những thông tin gì?",
+      "expected_source_substring": "SS_e-learning_app_backend_specification",
+      "expected_keywords": ["User ID", "URL"]
+    },
+    {
+      "id": "out-of-scope-weather",
+      "question": "Thời tiết ở Hà Nội hôm nay thế nào?",
+      "expect_refusal": true
+    },
+    {
+      "id": "out-of-scope-recipe",
+      "question": "Cách nấu phở bò truyền thống?",
+      "expect_refusal": true
+    }
+  ]
+}
