@@ -40,6 +40,7 @@ from document_registry import (
     STATUS_FAILED,
     DocumentRegistry,
 )
+import client_requests
 import excel_ingest
 import guardrails
 import ingest_worker as ingest_worker_module
@@ -49,6 +50,7 @@ import observability
 import prompts
 import retrieval
 import vision
+from client_request_store import ClientRequestStore
 from ingest_history import IngestHistory
 from job_store import MongoJobStore
 from session_store import SessionStore, history_messages
@@ -82,6 +84,7 @@ MONGODB_REGISTRY_COLLECTION = os.getenv("MONGODB_REGISTRY_COLLECTION", "document
 MONGODB_SESSIONS_COLLECTION = os.getenv("MONGODB_SESSIONS_COLLECTION", "chat_sessions")
 MONGODB_INGEST_HISTORY_COLLECTION = os.getenv("MONGODB_INGEST_HISTORY_COLLECTION", "ingest_runs")
 MONGODB_JOBS_COLLECTION = os.getenv("MONGODB_JOBS_COLLECTION", "ingest_jobs")
+MONGODB_CLIENT_REQUESTS_COLLECTION = os.getenv("MONGODB_CLIENT_REQUESTS_COLLECTION", "client_requests")
 MAX_INGEST_ATTEMPTS = int(os.getenv("MAX_INGEST_ATTEMPTS", 3))
 AUTO_INGEST_AFTER_EXPORT = os.getenv("AUTO_INGEST_AFTER_EXPORT", "1") == "1"
 SESSION_CONTEXT_TURNS = int(os.getenv("SESSION_CONTEXT_TURNS", 5))
@@ -114,6 +117,7 @@ try:
     )
     ingest_history = IngestHistory(mongo_client[MONGODB_DB_NAME][MONGODB_INGEST_HISTORY_COLLECTION])
     job_store = MongoJobStore(mongo_client[MONGODB_DB_NAME][MONGODB_JOBS_COLLECTION])
+    client_request_store = ClientRequestStore(mongo_client[MONGODB_DB_NAME][MONGODB_CLIENT_REQUESTS_COLLECTION])
     reranker = retrieval.Reranker() if retrieval.RERANK_ENABLED else None
 except Exception as e:
     logger.error(f"Failed to initialize models or clients on startup: {e}", exc_info=True)
@@ -127,6 +131,7 @@ except Exception as e:
     session_store = None
     ingest_history = None
     job_store = None
+    client_request_store = None
     reranker = None
 
 kafka_bus_instance = kafka_bus.KafkaBus() if kafka_bus.KAFKA_ENABLED else None
@@ -264,6 +269,15 @@ class AnswerQuery(BaseModel):
     filters: SearchFilters | None = None
     session_id: str | None = None  # bật hội thoại nhiều lượt khi client gửi kèm
     prompt_version: str | None = None  # mặc định theo PROMPT_VERSION (env)
+
+
+class ClientRequestCreate(BaseModel):
+    title: str
+    description: str
+    request_type: str = "feature"  # feature | bug
+    project: str | None = None  # lọc đặc tả theo dự án nếu chỉ định
+    requester: str | None = None
+    limit: int = 8  # số trích đoạn đặc tả tối đa trong gói ngữ cảnh
 
 
 class IngestExcelRequest(BaseModel):
@@ -1146,6 +1160,117 @@ def delete_session(session_id: str):
     if not session_store.delete_session(session_id):
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     return {"deleted": True, "session_id": session_id}
+
+
+# --- Yêu cầu từ khách hàng (client requests) ---
+# Tiếp nhận yêu cầu thêm tính năng / sửa lỗi, truy xuất các đặc tả hiện có
+# liên quan và đóng gói thành ngữ cảnh có trích dẫn cho agent PM/Coder/Tester.
+
+
+def _require_client_request_store() -> ClientRequestStore:
+    if client_request_store is None:
+        raise HTTPException(status_code=503, detail="MongoDB client request store is not available.")
+    return client_request_store
+
+
+def _get_client_request_or_404(request_id: str) -> dict:
+    record = _require_client_request_store().get(request_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Client request '{request_id}' not found.")
+    return record
+
+
+def _analyze_client_request(record: dict, limit: int) -> dict:
+    query_text = f"{record['title']}\n{record['description']}".strip()
+    filters = SearchFilters(project=record["project"]) if record.get("project") else None
+    matches, retrieval_info = _retrieve(query_text, limit, filters)
+    excerpts = [
+        {
+            "text": m["text"],
+            "source": m["source"],
+            "heading": m["heading"],
+            "start_line": m["start_line"],
+            "end_line": m["end_line"],
+            "score": retrieval.relevance_score(m),
+        }
+        for m in matches
+    ]
+    return client_requests.build_context_package(query_text, excerpts, retrieval_info)
+
+
+@app.post("/client-requests", status_code=201)
+def create_client_request(payload: ClientRequestCreate):
+    store = _require_client_request_store()
+    if payload.request_type not in client_requests.REQUEST_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"request_type must be one of {list(client_requests.REQUEST_TYPES)}.",
+        )
+    if not payload.title.strip() or not payload.description.strip():
+        raise HTTPException(status_code=422, detail="title and description must be non-empty.")
+
+    record = store.create(
+        title=payload.title.strip(),
+        description=payload.description.strip(),
+        request_type=payload.request_type,
+        project=payload.project,
+        requester=payload.requester,
+    )
+    package = _analyze_client_request(record, payload.limit)
+    store.save_context(record["request_id"], package)
+    record["context"] = package
+    logger.info(
+        "client_request_created",
+        extra={
+            "request_id": record["request_id"],
+            "request_type": record["request_type"],
+            "has_related_specs": package["has_related_specs"],
+            "excerpts": len(package["excerpts"]),
+        },
+    )
+    return record
+
+
+@app.get("/client-requests")
+def list_client_requests(limit: int = 50):
+    return _require_client_request_store().list(limit=max(1, min(limit, 200)))
+
+
+@app.get("/client-requests/{request_id}")
+def get_client_request(request_id: str):
+    return _get_client_request_or_404(request_id)
+
+
+@app.get("/client-requests/{request_id}/context")
+def get_client_request_context(request_id: str, role: str = "coder"):
+    """Gói ngữ cảnh + markdown sẵn dùng cho agent theo vai trò (pm/coder/tester)."""
+    if role not in client_requests.AGENT_ROLES:
+        raise HTTPException(
+            status_code=422, detail=f"role must be one of {list(client_requests.AGENT_ROLES)}."
+        )
+    record = _get_client_request_or_404(request_id)
+    package = record.get("context")
+    if not package:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Client request '{request_id}' has no context yet; call POST /client-requests/{request_id}/reanalyze.",
+        )
+    return {
+        "request_id": request_id,
+        "role": role,
+        "context": package,
+        "markdown": client_requests.render_context_markdown(record, package, role),
+    }
+
+
+@app.post("/client-requests/{request_id}/reanalyze")
+def reanalyze_client_request(request_id: str, limit: int = 8):
+    """Chạy lại truy xuất — dùng sau khi ingest thêm/cập nhật đặc tả."""
+    record = _get_client_request_or_404(request_id)
+    package = _analyze_client_request(record, max(1, min(limit, 20)))
+    _require_client_request_store().save_context(request_id, package)
+    record["context"] = package
+    return record
 
 
 def _select_chat_client(use_online_model: int):

@@ -78,3 +78,12 @@
 - Endpoint `/ingest-spreadsheet` trả HTTP `429` khi NotebookLM rate limit, không retry ngay.
 - Bổ sung unit test cho source/artifact reuse.
 - Unit test NotebookLM: `6 passed`.
+
+### 2026-07-16 — Yêu cầu khách hàng → gói ngữ cảnh cho agent PM/Coder/Tester
+- Tạo `services/knowledge_service/client_requests.py` (dựng gói ngữ cảnh + render markdown theo vai trò, quy tắc chống ảo giác) và `client_request_store.py` (MongoDB collection `client_requests`).
+- 5 endpoint mới trên `knowledge_service`: `POST /client-requests`, `GET /client-requests`, `GET /client-requests/{id}`, `GET /client-requests/{id}/context?role=pm|coder|tester`, `POST /client-requests/{id}/reanalyze`.
+- Frontend: view "Yêu cầu khách hàng" (`/client-requests`) — form gửi, danh sách, chi tiết trích đoạn, tab vai trò, nút sao chép markdown và phân tích lại.
+- Bật `RERANK_ENABLED=1` trong `.env`: bắt buộc để truy vấn tiếng Việt khớp đặc tả tiếng Anh (reranker mmarco đa ngôn ngữ); không bật thì truy vấn tiếng Việt không vượt ngưỡng điểm.
+- Unit test: `tests/test_client_requests.py` — `8 passed`; toàn suite 82 passed (8 fail sẵn có trong `test_ingest_sync.py`, không liên quan).
+- E2E: tạo yêu cầu "Session tự gia hạn…" → truy xuất 8 trích đoạn từ 7 file `app_backend_specification_part*.md`.
+- Tài liệu chi tiết: `docs/Client-Request-Context.md`.

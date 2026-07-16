@@ -112,6 +112,15 @@ export const api = {
   },
   ingestSpreadsheet: (payload) => kn('/ingest-spreadsheet', { method: 'POST', body: payload }),
 
+  // ---- Yêu cầu khách hàng (client requests) ----
+  createClientRequest: (payload) => kn('/client-requests', { method: 'POST', body: payload }),
+  listClientRequests: (limit = 50) => kn('/client-requests', { query: { limit } }),
+  getClientRequest: (id) => kn(`/client-requests/${encodeURIComponent(id)}`),
+  getClientRequestContext: (id, role) =>
+    kn(`/client-requests/${encodeURIComponent(id)}/context`, { query: { role } }),
+  reanalyzeClientRequest: (id) =>
+    kn(`/client-requests/${encodeURIComponent(id)}/reanalyze`, { method: 'POST' }),
+
   // ---- Git (agent_service) ----
   gitStatus: () => ag('/git/status'),
   createBranch: (name) => ag('/git/branch', { method: 'POST', body: { name } }),

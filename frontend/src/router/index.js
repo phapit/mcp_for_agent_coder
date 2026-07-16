@@ -21,6 +21,12 @@ const routes = [
     meta: { title: 'Tình trạng task' },
   },
   {
+    path: '/client-requests',
+    name: 'client-requests',
+    component: () => import('@/views/ClientRequestsView.vue'),
+    meta: { title: 'Yêu cầu khách hàng' },
+  },
+  {
     path: '/answer',
     name: 'answer',
     component: () => import('@/views/AnswerView.vue'),

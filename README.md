@@ -92,6 +92,15 @@ Bảo mật: service không khởi động nếu thiếu `SERVICE_API_KEY`; rate
 (`RATE_LIMIT_PER_MINUTE`, mặc định 120/phút); giới hạn upload (`MAX_UPLOAD_SIZE_MB`, mặc định 20 MB);
 CORS chỉ bật khi khai báo `ALLOWED_ORIGINS`; container chạy non-root (uid 1000).
 
+### Yêu cầu khách hàng → gói ngữ cảnh cho agent
+
+`POST /client-requests` tiếp nhận yêu cầu thêm tính năng / sửa lỗi từ khách, truy xuất đặc tả hiện có
+liên quan và trả về gói ngữ cảnh có trích dẫn (kèm markdown theo vai trò `pm` / `coder` / `tester`)
+để nạp cho agent — chống ảo giác, không phá vỡ tính năng đã đặc tả. UI: menu "Yêu cầu khách hàng".
+Lưu ý vận hành: cần `RERANK_ENABLED=1` để truy vấn tiếng Việt khớp đặc tả tiếng Anh.
+
+Chi tiết endpoint, cơ chế chống ảo giác và quy trình: xem [docs/Client-Request-Context.md](docs/Client-Request-Context.md).
+
 ### Cấu hình API key cho script CLI
 
 Các script gọi API không lưu API key trong source. Cần cấu hình biến môi trường trước khi chạy:
