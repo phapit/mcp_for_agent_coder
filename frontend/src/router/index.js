@@ -62,6 +62,12 @@ const routes = [
     component: () => import('@/views/ActivityLogView.vue'),
     meta: { title: 'Log hoạt động' },
   },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('@/views/SettingsView.vue'),
+    meta: { title: 'Cài đặt' },
+  },
 ]
 
 export default createRouter({

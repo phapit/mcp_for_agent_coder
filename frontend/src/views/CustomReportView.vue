@@ -2,8 +2,11 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api, ApiError } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useSettings } from '@/composables/useSettings'
+import { LANGUAGES } from '@/constants/languages'
 
 const toast = useToast()
+const { settings, ready: settingsReady } = useSettings()
 
 const form = reactive({
   project_name: '',
@@ -20,17 +23,6 @@ const FORMATS = [
   { value: 'briefing-doc', label: 'Briefing doc' },
   { value: 'study-guide', label: 'Study guide' },
   { value: 'blog-post', label: 'Blog post' },
-]
-
-// Mã ngôn ngữ phổ biến cho generate report (per-command --language).
-const LANGUAGES = [
-  { code: '', label: 'Mặc định (theo cấu hình NotebookLM)' },
-  { code: 'vi', label: 'Tiếng Việt (vi)' },
-  { code: 'en', label: 'English (en)' },
-  { code: 'ja', label: '日本語 (ja)' },
-  { code: 'zh_Hans', label: '简体中文 (zh_Hans)' },
-  { code: 'ko', label: '한국어 (ko)' },
-  { code: 'fr', label: 'Français (fr)' },
 ]
 
 const PROMPT_MAX_LENGTH = 1024
@@ -92,7 +84,11 @@ async function submit() {
   }
 }
 
-onMounted(loadProjects)
+onMounted(async () => {
+  loadProjects()
+  await settingsReady
+  if (settings.defaultLanguage) form.language = settings.defaultLanguage
+})
 </script>
 
 <template>

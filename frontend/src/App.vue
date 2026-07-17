@@ -36,6 +36,7 @@ const nav = [
   { to: '/ingest-spreadsheet', label: 'Ingest Spreadsheet', ico: '▦' },
   { to: '/custom-report', label: 'Xuất tài liệu theo yêu cầu', ico: '✎' },
   { to: '/logs', label: 'Log hoạt động', ico: '☰' },
+  { to: '/settings', label: 'Cài đặt', ico: '⚙' },
 ]
 </script>
 
