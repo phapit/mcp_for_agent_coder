@@ -1,12 +1,14 @@
 <script setup>
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import { usePolling } from '@/composables/usePolling'
+import { useI18n } from '@/i18n'
 
 const route = useRoute()
+const { t, locale, setLocale } = useI18n()
 
 const health = reactive({
   knowledge: 'unknown',
@@ -25,19 +27,19 @@ onMounted(() => {
   start()
 })
 
-const nav = [
-  { to: '/dashboard', label: 'Tổng quan', ico: '◧' },
-  { to: '/projects', label: 'Quản lý dự án', ico: '❖' },
-  { to: '/tasks', label: 'Tình trạng task', ico: '⟳' },
-  { to: '/client-requests', label: 'Yêu cầu khách hàng', ico: '✉' },
-  { to: '/answer', label: 'Hỏi đáp (RAG)', ico: '✦' },
-  { to: '/search', label: 'Tìm kiếm ngữ cảnh', ico: '🔍' },
-  { to: '/ingest-excel', label: 'Ingest Excel', ico: '▤' },
-  { to: '/ingest-spreadsheet', label: 'Ingest Spreadsheet', ico: '▦' },
-  { to: '/custom-report', label: 'Xuất tài liệu theo yêu cầu', ico: '✎' },
-  { to: '/logs', label: 'Log hoạt động', ico: '☰' },
-  { to: '/settings', label: 'Cài đặt', ico: '⚙' },
-]
+const nav = computed(() => [
+  { to: '/dashboard', label: t('nav.dashboard'), ico: '◧' },
+  { to: '/projects', label: t('nav.projects'), ico: '❖' },
+  { to: '/tasks', label: t('nav.tasks'), ico: '⟳' },
+  { to: '/client-requests', label: t('nav.clientRequests'), ico: '✉' },
+  { to: '/answer', label: t('nav.answer'), ico: '✦' },
+  { to: '/search', label: t('nav.search'), ico: '🔍' },
+  { to: '/ingest-excel', label: t('nav.ingestExcel'), ico: '▤' },
+  { to: '/ingest-spreadsheet', label: t('nav.ingestSpreadsheet'), ico: '▦' },
+  { to: '/custom-report', label: t('nav.customReport'), ico: '✎' },
+  { to: '/logs', label: t('nav.activityLog'), ico: '☰' },
+  { to: '/settings', label: t('nav.settings'), ico: '⚙' },
+])
 </script>
 
 <template>
@@ -46,8 +48,8 @@ const nav = [
       <div class="brand">
         <div class="brand-logo">O</div>
         <div>
-          <div class="brand-name">Obsidian-Wiki</div>
-          <div class="brand-sub">Control Panel</div>
+          <div class="brand-name">{{ t('app.brandName') }}</div>
+          <div class="brand-sub">{{ t('app.brandSub') }}</div>
         </div>
       </div>
 
@@ -59,15 +61,29 @@ const nav = [
         <div class="row spread" style="margin-bottom:.3rem">
           <span>knowledge</span><StatusBadge :status="health.knowledge" />
         </div>
-        <div class="row spread">
+        <div class="row spread" style="margin-bottom:.6rem">
           <span>agent</span><StatusBadge :status="health.agent" />
+        </div>
+        <div class="row spread" :title="t('app.uiLanguage')">
+          <button
+            class="btn btn-sm"
+            :class="{ 'btn-primary': locale === 'vi' }"
+            style="flex:1"
+            @click="setLocale('vi')"
+          >VI</button>
+          <button
+            class="btn btn-sm"
+            :class="{ 'btn-primary': locale === 'ja' }"
+            style="flex:1"
+            @click="setLocale('ja')"
+          >日本語</button>
         </div>
       </div>
     </aside>
 
     <div class="main">
       <div class="topbar">
-        <h1 class="mb0">{{ route.meta.title || 'Obsidian-Wiki' }}</h1>
+        <h1 class="mb0">{{ route.meta.titleKey ? t(route.meta.titleKey) : t('app.defaultTitle') }}</h1>
         <div class="row">
           <StatusBadge :status="health.knowledge" />
           <StatusBadge :status="health.agent" />

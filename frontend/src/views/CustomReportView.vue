@@ -4,9 +4,11 @@ import { api, ApiError } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useSettings } from '@/composables/useSettings'
 import { LANGUAGES } from '@/constants/languages'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
 const { settings, ready: settingsReady } = useSettings()
+const { t } = useI18n()
 
 const form = reactive({
   project_name: '',
@@ -18,12 +20,12 @@ const form = reactive({
   language: '',
 })
 
-const FORMATS = [
-  { value: 'custom', label: 'Tùy chỉnh hoàn toàn (custom)' },
-  { value: 'briefing-doc', label: 'Briefing doc' },
-  { value: 'study-guide', label: 'Study guide' },
-  { value: 'blog-post', label: 'Blog post' },
-]
+const FORMATS = computed(() => [
+  { value: 'custom', label: t('customReport.formatCustom') },
+  { value: 'briefing-doc', label: t('customReport.formatBriefing') },
+  { value: 'study-guide', label: t('customReport.formatStudyGuide') },
+  { value: 'blog-post', label: t('customReport.formatBlogPost') },
+])
 
 const PROMPT_MAX_LENGTH = 1024
 
@@ -43,7 +45,7 @@ async function loadProjects() {
     const list = await api.listAllProjects()
     projects.value = Array.isArray(list) ? list : list?.projects || []
   } catch (e) {
-    toast.error(`Tải danh sách dự án: ${e instanceof ApiError ? e.message : e}`)
+    toast.error(t('customReport.loadProjectsErrorPrefix', { error: e instanceof ApiError ? e.message : e }))
   } finally {
     loadingProjects.value = false
   }
@@ -55,11 +57,11 @@ function onProjectChange() {
 
 async function submit() {
   if (!form.project_name || !form.notebook_env || !form.prompt.trim()) {
-    toast.error('Cần chọn dự án, environment và nhập yêu cầu (prompt).')
+    toast.error(t('customReport.missingFields'))
     return
   }
   if (form.prompt.trim().length > PROMPT_MAX_LENGTH) {
-    toast.error(`Yêu cầu (prompt) vượt quá ${PROMPT_MAX_LENGTH} ký tự (hiện ${form.prompt.trim().length}).`)
+    toast.error(t('customReport.promptTooLong', { max: PROMPT_MAX_LENGTH, current: form.prompt.trim().length }))
     return
   }
   submitting.value = true
@@ -74,10 +76,10 @@ async function submit() {
     if (form.language) payload.language = form.language
     if (form.append.trim() && form.format !== 'custom') payload.append = form.append.trim()
     result.value = await api.generateNotebookReport(payload)
-    toast.success('Đã tạo tài liệu theo yêu cầu và kích hoạt ingest.')
+    toast.success(t('customReport.createSuccess'))
   } catch (e) {
-    if (e?.status === 429) toast.error('NotebookLM đang bị rate limit (429) — thử lại sau.')
-    else if (e?.status === 404) toast.error('Không tìm thấy cấu hình dự án/environment (404).')
+    if (e?.status === 429) toast.error(t('customReport.err429'))
+    else if (e?.status === 404) toast.error(t('customReport.err404'))
     else toast.error(e instanceof ApiError ? e.message : String(e))
   } finally {
     submitting.value = false
@@ -94,26 +96,25 @@ onMounted(async () => {
 <template>
   <div class="card">
     <div class="section-head">
-      <h2 class="mb0">Xuất tài liệu theo yêu cầu (NotebookLM)</h2>
-      <button class="btn btn-sm" @click="loadProjects" :disabled="loadingProjects">Tải lại dự án</button>
+      <h2 class="mb0">{{ t('customReport.title') }}</h2>
+      <button class="btn btn-sm" @click="loadProjects" :disabled="loadingProjects">{{ t('customReport.reloadProjects') }}</button>
     </div>
     <p class="faint mt0" style="font-size:.85rem">
-      Nhập yêu cầu tự do (vd: "Mô tả chi tiết logic hoạt động của button A") — NotebookLM tạo tài liệu
-      dựa trên các nguồn đã có sẵn trong notebook của dự án, sau đó tự động ingest vào kho tri thức.
+      {{ t('customReport.description') }}
     </p>
 
     <div class="row wrap" style="gap:.8rem">
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Dự án</span>
+        <span class="field-label">{{ t('customReport.projectLabel') }}</span>
         <select v-model="form.project_name" @change="onProjectChange">
-          <option value="" disabled>— chọn dự án —</option>
+          <option value="" disabled>{{ t('customReport.selectProject') }}</option>
           <option v-for="p in projects" :key="p.project_name" :value="p.project_name">{{ p.project_name }}</option>
         </select>
       </label>
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Environment</span>
+        <span class="field-label">{{ t('customReport.envLabel') }}</span>
         <select v-model="form.notebook_env" :disabled="!envs.length">
-          <option value="" disabled>— chọn env —</option>
+          <option value="" disabled>{{ t('customReport.selectEnv') }}</option>
           <option v-for="e in envs" :key="e" :value="e">{{ e }}</option>
         </select>
       </label>
@@ -121,31 +122,31 @@ onMounted(async () => {
 
     <label class="field">
       <span class="field-label row spread">
-        <span>Yêu cầu (prompt)</span>
+        <span>{{ t('customReport.promptLabel') }}</span>
         <span class="faint">{{ form.prompt.length }}/{{ PROMPT_MAX_LENGTH }}</span>
       </span>
       <textarea
         v-model="form.prompt"
         rows="4"
         maxlength="1024"
-        placeholder='vd: "Mô tả chi tiết logic hoạt động của button A"'
+        :placeholder="t('customReport.promptPlaceholder')"
         @keydown.ctrl.enter="submit"
       />
     </label>
 
     <div class="row wrap" style="gap:.8rem">
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Tên file output</span>
+        <span class="field-label">{{ t('customReport.outputNameLabel') }}</span>
         <input v-model="form.output_name" placeholder="custom-report.md" />
       </label>
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Định dạng report</span>
+        <span class="field-label">{{ t('customReport.formatLabel') }}</span>
         <select v-model="form.format">
           <option v-for="f in FORMATS" :key="f.value" :value="f.value">{{ f.label }}</option>
         </select>
       </label>
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Ngôn ngữ đầu ra (generate)</span>
+        <span class="field-label">{{ t('customReport.languageLabel') }}</span>
         <select v-model="form.language">
           <option v-for="l in LANGUAGES" :key="l.code" :value="l.code">{{ l.label }}</option>
         </select>
@@ -153,30 +154,29 @@ onMounted(async () => {
     </div>
 
     <label class="field" v-if="form.format !== 'custom'">
-      <span class="field-label">Ghi chú thêm vào template (append, tùy chọn)</span>
-      <input v-model="form.append" placeholder='vd: "Ngắn gọn, dành cho người mới"' />
+      <span class="field-label">{{ t('customReport.appendLabel') }}</span>
+      <input v-model="form.append" :placeholder="t('customReport.appendPlaceholder')" />
     </label>
     <p class="faint mt0 mb0" style="font-size:.8rem">
-      Chọn "Tùy chỉnh hoàn toàn" để prompt là toàn quyền chỉ dẫn nội dung; các định dạng còn lại dùng
-      template có sẵn của NotebookLM, prompt/append chỉ bổ sung chỉ dẫn.
+      {{ t('customReport.formatHint') }}
     </p>
 
     <button class="btn btn-primary" :disabled="submitting" @click="submit">
       <span v-if="submitting" class="spinner"></span>
-      {{ submitting ? 'Đang tạo tài liệu…' : '▶ Tạo tài liệu & ingest' }}
+      {{ submitting ? t('customReport.submitting') : t('customReport.submitButton') }}
     </button>
-    <p class="faint mt1 mb0" style="font-size:.8rem">Ctrl+Enter để gửi nhanh.</p>
+    <p class="faint mt1 mb0" style="font-size:.8rem">{{ t('customReport.submitHint') }}</p>
   </div>
 
   <div v-if="result" class="card mt1">
-    <h2>Kết quả</h2>
-    <div class="row spread"><span class="muted">Notebook ID</span><span class="mono">{{ result.notebook_id }}</span></div>
-    <div class="row spread"><span class="muted">Artifact ID</span><span class="mono">{{ result.artifact_id ?? '—' }}</span></div>
-    <div class="row spread"><span class="muted">Output MD</span><span class="mono">{{ result.output_md }}</span></div>
-    <div class="row spread"><span class="muted">Định dạng</span><span class="mono">{{ result.format }}</span></div>
-    <div class="row spread"><span class="muted">Ngôn ngữ</span><span class="mono">{{ result.language ?? '— (mặc định)' }}</span></div>
+    <h2>{{ t('customReport.result') }}</h2>
+    <div class="row spread"><span class="muted">{{ t('customReport.notebookId') }}</span><span class="mono">{{ result.notebook_id }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('customReport.artifactId') }}</span><span class="mono">{{ result.artifact_id ?? '—' }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('customReport.outputMd') }}</span><span class="mono">{{ result.output_md }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('customReport.format') }}</span><span class="mono">{{ result.format }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('customReport.language') }}</span><span class="mono">{{ result.language ?? t('customReport.defaultSuffix') }}</span></div>
     <details class="mt1">
-      <summary class="muted" style="cursor:pointer">Xem JSON đầy đủ</summary>
+      <summary class="muted" style="cursor:pointer">{{ t('common.viewJson') }}</summary>
       <pre class="pre mt1">{{ JSON.stringify(result, null, 2) }}</pre>
     </details>
   </div>

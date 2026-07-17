@@ -2,8 +2,10 @@
 import { reactive, ref } from 'vue'
 import { api, ApiError } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
+const { t } = useI18n()
 
 const form = reactive({
   question: '',
@@ -32,7 +34,7 @@ function buildFilters() {
 
 async function ask() {
   if (!form.question.trim()) {
-    toast.error('Nhập câu hỏi.')
+    toast.error(t('answer.emptyQuestion'))
     return
   }
   loading.value = true
@@ -54,7 +56,7 @@ async function ask() {
     if (result.value?.session_id) form.session_id = result.value.session_id
   } catch (e) {
     result.value = null
-    if (e?.status === 404) toast.error('Không tìm được ngữ cảnh liên quan (404) — hệ thống từ chối bịa câu trả lời.')
+    if (e?.status === 404) toast.error(t('answer.noContext'))
     else toast.error(e instanceof ApiError ? e.message : String(e))
   } finally {
     loading.value = false
@@ -65,33 +67,33 @@ async function ask() {
 <template>
   <div class="grid cols-2">
     <div class="card">
-      <h2>Đặt câu hỏi (RAG)</h2>
+      <h2>{{ t('answer.title') }}</h2>
       <label class="field">
-        <span class="field-label">Câu hỏi</span>
-        <textarea v-model="form.question" placeholder="Nhập câu hỏi…" @keydown.ctrl.enter="ask" />
+        <span class="field-label">{{ t('answer.questionLabel') }}</span>
+        <textarea v-model="form.question" :placeholder="t('answer.questionPlaceholder')" @keydown.ctrl.enter="ask" />
       </label>
       <div class="row wrap" style="gap:.8rem">
         <label class="field" style="flex:1;min-width:120px">
-          <span class="field-label">Số ngữ cảnh (limit)</span>
+          <span class="field-label">{{ t('answer.limitLabel') }}</span>
           <input type="number" min="1" max="20" v-model.number="form.limit" />
         </label>
         <label class="field" style="flex:1;min-width:140px">
-          <span class="field-label">Mô hình</span>
+          <span class="field-label">{{ t('answer.modelLabel') }}</span>
           <select v-model.number="form.use_online_model">
-            <option :value="0">Ollama (local)</option>
-            <option :value="1">OpenAI gpt-4o-mini (online)</option>
+            <option :value="0">{{ t('answer.modelOllama') }}</option>
+            <option :value="1">{{ t('answer.modelOpenAI') }}</option>
           </select>
         </label>
       </div>
       <button class="btn btn-primary" :disabled="loading" @click="ask">
         <span v-if="loading" class="spinner"></span>
-        {{ loading ? 'Đang trả lời…' : '✦ Trả lời' }}
+        {{ loading ? t('answer.answering') : t('answer.answerButton') }}
       </button>
-      <p class="faint mt1 mb0" style="font-size:.8rem">Ctrl+Enter để gửi. Có session_id → hỏi tiếp nhiều lượt.</p>
+      <p class="faint mt1 mb0" style="font-size:.8rem">{{ t('answer.answerHint') }}</p>
     </div>
 
     <div class="card">
-      <h2>Tùy chọn nâng cao</h2>
+      <h2>{{ t('answer.advancedOptions') }}</h2>
       <div class="row wrap" style="gap:.8rem">
         <label class="field" style="flex:1;min-width:120px">
           <span class="field-label">Project</span>
@@ -115,11 +117,11 @@ async function ask() {
       <div class="row wrap" style="gap:.8rem">
         <label class="field" style="flex:1;min-width:120px">
           <span class="field-label">Session ID</span>
-          <input v-model="form.session_id" placeholder="tự sinh nếu trống" />
+          <input v-model="form.session_id" :placeholder="t('answer.sessionIdPlaceholder')" />
         </label>
         <label class="field" style="flex:1;min-width:120px">
           <span class="field-label">Prompt version</span>
-          <input v-model="form.prompt_version" placeholder="mặc định theo env" />
+          <input v-model="form.prompt_version" :placeholder="t('answer.promptVersionPlaceholder')" />
         </label>
       </div>
     </div>
@@ -127,18 +129,18 @@ async function ask() {
 
   <div v-if="result" class="card mt1">
     <div class="section-head">
-      <h2 class="mb0">Câu trả lời</h2>
+      <h2 class="mb0">{{ t('answer.answerTitle') }}</h2>
       <div class="row faint" style="gap:.8rem;font-size:.8rem">
         <span class="badge badge-neutral">{{ result.model_used }}</span>
         <span v-if="result.prompt_version">prompt {{ result.prompt_version }}</span>
-        <span v-if="result.context_sanitized" class="badge badge-warn">context đã lọc</span>
+        <span v-if="result.context_sanitized" class="badge badge-warn">{{ t('answer.contextSanitized') }}</span>
         <span v-if="elapsed != null">{{ elapsed }} ms</span>
       </div>
     </div>
     <pre class="pre" style="white-space:pre-wrap;font-size:.92rem">{{ result.answer }}</pre>
 
     <template v-if="result.citations && result.citations.length">
-      <h2 class="mt1">Trích dẫn ({{ result.citations.length }})</h2>
+      <h2 class="mt1">{{ t('answer.citations', { count: result.citations.length }) }}</h2>
       <div
         v-for="c in result.citations"
         :key="c.context_id"
@@ -147,14 +149,14 @@ async function ask() {
       >
         <span class="mono">{{ c.source }}<span v-if="c.heading"> › {{ c.heading }}</span></span>
         <span class="faint" style="font-size:.8rem">
-          <span v-if="c.start_line">dòng {{ c.start_line }}–{{ c.end_line }} · </span>
+          <span v-if="c.start_line">{{ t('answer.lineRange', { start: c.start_line, end: c.end_line }) }} · </span>
           score {{ c.score != null ? Number(c.score).toFixed(3) : '—' }}
         </span>
       </div>
     </template>
 
     <details class="mt1">
-      <summary class="muted" style="cursor:pointer">Chi tiết retrieval / JSON</summary>
+      <summary class="muted" style="cursor:pointer">{{ t('answer.retrievalDetails') }}</summary>
       <pre class="pre mt1">{{ JSON.stringify(result.retrieval ?? {}, null, 2) }}</pre>
     </details>
   </div>

@@ -3,9 +3,11 @@ import { onMounted, ref } from 'vue'
 import { LANGUAGES } from '@/constants/languages'
 import { useSettings } from '@/composables/useSettings'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
 const { settings, ready, setDefaultLanguage } = useSettings()
+const { t } = useI18n()
 
 const selected = ref('')
 const saving = ref(false)
@@ -19,9 +21,9 @@ async function save() {
   saving.value = true
   try {
     await setDefaultLanguage(selected.value)
-    toast.success('Đã lưu ngôn ngữ mặc định.')
+    toast.success(t('settings.saveSuccess'))
   } catch (e) {
-    toast.error(`Không thể lưu cài đặt: ${e}`)
+    toast.error(t('settings.saveError', { error: e }))
   } finally {
     saving.value = false
   }
@@ -30,14 +32,13 @@ async function save() {
 
 <template>
   <div class="card">
-    <h2 class="mb0">Cài đặt</h2>
+    <h2 class="mb0">{{ t('settings.title') }}</h2>
     <p class="faint mt0" style="font-size:.85rem">
-      Ngôn ngữ mặc định sẽ tự động điền vào các form "Ingest Spreadsheet" và "Xuất tài liệu theo yêu cầu".
-      Cài đặt này được lưu trên trình duyệt (IndexedDB), không đồng bộ giữa các máy.
+      {{ t('settings.description') }}
     </p>
 
     <label class="field" style="max-width:320px">
-      <span class="field-label">Ngôn ngữ mặc định</span>
+      <span class="field-label">{{ t('settings.defaultLanguageLabel') }}</span>
       <select v-model="selected">
         <option v-for="l in LANGUAGES" :key="l.code" :value="l.code">{{ l.label }}</option>
       </select>
@@ -45,7 +46,7 @@ async function save() {
 
     <button class="btn btn-primary" :disabled="saving" @click="save">
       <span v-if="saving" class="spinner"></span>
-      {{ saving ? 'Đang lưu…' : '💾 Lưu cài đặt' }}
+      {{ saving ? t('settings.saving') : t('settings.saveButton') }}
     </button>
   </div>
 </template>

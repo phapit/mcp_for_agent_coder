@@ -4,8 +4,10 @@ import { api, ApiError } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { usePolling } from '@/composables/usePolling'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
+const { t } = useI18n()
 
 // "Log hoạt động": backend không có API log stdout. Ta dựng nhật ký từ registry tài liệu
 // (/ingest/documents), dead-letter và lịch sử ingest — tất cả qua polling.
@@ -25,7 +27,7 @@ async function load() {
     if (h.status === 'fulfilled') history.value = h.value?.runs || []
     if (d.status === 'rejected') throw d.reason
   } catch (e) {
-    toast.error(`Log: ${e instanceof ApiError ? e.message : e}`)
+    toast.error(t('activityLog.loadErrorPrefix', { error: e instanceof ApiError ? e.message : e }))
   } finally {
     loading.value = false
   }
@@ -55,7 +57,7 @@ const entries = computed(() => {
 async function requeue(documentId) {
   try {
     const r = await api.requeueDeadLetter(documentId)
-    toast.success(`Đã requeue ${r?.requeued ?? ''} tài liệu`)
+    toast.success(t('activityLog.requeueSuccess', { count: r?.requeued ?? '' }))
     load()
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : String(e))
@@ -84,18 +86,17 @@ const counts = computed(() => ({
   <div class="card">
     <div class="section-head">
       <div>
-        <h2 class="mb0">Nhật ký hoạt động</h2>
+        <h2 class="mb0">{{ t('activityLog.title') }}</h2>
         <p class="faint mb0" style="font-size:.8rem">
-          Tổng hợp từ registry tài liệu + dead-letter + lịch sử ingest (polling 6s).
-          Log stdout của service lấy bằng <span class="mono">docker logs knowledge_service</span>.
+          {{ t('activityLog.description', { cmd: 'docker logs knowledge_service' }) }}
         </p>
       </div>
       <div class="row">
         <button class="btn btn-sm" :class="auto ? 'btn-primary' : ''" @click="toggleAuto">
-          {{ auto ? '● Auto' : '○ Auto' }}
+          {{ auto ? t('activityLog.autoOn') : t('activityLog.autoOff') }}
         </button>
         <button class="btn btn-sm" @click="load" :disabled="loading">
-          <span v-if="loading" class="spinner"></span> Làm mới
+          <span v-if="loading" class="spinner"></span> {{ t('common.refresh') }}
         </button>
       </div>
     </div>
@@ -115,15 +116,15 @@ const counts = computed(() => ({
 
   <!-- Dead-letter cần chú ý -->
   <div v-if="counts.dead_letter" class="card mt1" style="border-color:var(--err)">
-    <h3 style="color:var(--err)">⚠ Dead-letter ({{ counts.dead_letter }})</h3>
+    <h3 style="color:var(--err)">{{ t('activityLog.deadLetterWarning', { count: counts.dead_letter }) }}</h3>
     <table>
-      <thead><tr><th>Document</th><th>File</th><th>Lỗi</th><th></th></tr></thead>
+      <thead><tr><th>{{ t('activityLog.colDocument') }}</th><th>{{ t('activityLog.colFile') }}</th><th>{{ t('activityLog.colError') }}</th><th></th></tr></thead>
       <tbody>
         <tr v-for="d in docs.dead_letter" :key="d.document_id || d.id">
           <td class="mono">{{ d.document_id || d.id }}</td>
           <td class="mono muted">{{ d.file || d.source }}</td>
           <td class="mono" style="color:var(--err)">{{ d.error || '—' }}</td>
-          <td><button class="btn btn-sm" @click="requeue(d.document_id || d.id)">Requeue</button></td>
+          <td><button class="btn btn-sm" @click="requeue(d.document_id || d.id)">{{ t('activityLog.requeue') }}</button></td>
         </tr>
       </tbody>
     </table>
@@ -132,7 +133,7 @@ const counts = computed(() => ({
   <!-- Dòng log -->
   <div class="card mt1">
     <table v-if="entries.length">
-      <thead><tr><th>Thời gian</th><th>Mức</th><th>File / Document</th><th>Thông điệp</th></tr></thead>
+      <thead><tr><th>{{ t('activityLog.colTime') }}</th><th>{{ t('activityLog.colLevel') }}</th><th>{{ t('activityLog.colFileDocument') }}</th><th>{{ t('activityLog.colMessage') }}</th></tr></thead>
       <tbody>
         <tr v-for="(e, i) in entries" :key="i">
           <td class="mono faint" style="white-space:nowrap">{{ e.time || '—' }}</td>
@@ -142,12 +143,12 @@ const counts = computed(() => ({
             <div class="mono faint" style="font-size:.72rem">{{ e.document_id }}</div>
           </td>
           <td class="mono" :style="e.level === 'err' ? 'color:var(--err)' : ''">
-            {{ e.message }}<span v-if="e.attempt != null" class="faint"> · attempt {{ e.attempt }}</span>
+            {{ e.message }}<span v-if="e.attempt != null" class="faint"> {{ t('activityLog.attemptSuffix', { n: e.attempt }) }}</span>
           </td>
         </tr>
       </tbody>
     </table>
-    <p v-else-if="loading" class="row"><span class="spinner"></span> Đang tải…</p>
-    <p v-else class="empty">Không có mục log nào cho bộ lọc "{{ filter }}".</p>
+    <p v-else-if="loading" class="row"><span class="spinner"></span> {{ t('common.loading') }}</p>
+    <p v-else class="empty">{{ t('activityLog.noEntries', { filter }) }}</p>
   </div>
 </template>

@@ -3,8 +3,10 @@ import { onMounted, reactive, ref } from 'vue'
 import { api, ApiError } from '@/api/client'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
+const { t } = useI18n()
 
 // Backend không có endpoint "list tất cả project" → lưu tên project đã biết ở localStorage.
 const LS_KEY = 'ow.knownProjects'
@@ -63,7 +65,7 @@ async function loadAll() {
       if (!projects[name]) projects[name] = { loading: false, error: null, configs: [] }
     }
   } catch (e) {
-    toast.error(`Danh sách dự án: ${e instanceof ApiError ? e.message : e}`)
+    toast.error(t('projects.listErrorPrefix', { error: e instanceof ApiError ? e.message : e }))
     await Promise.allSettled(knownNames.value.map(loadProject)) // fallback theo localStorage
   } finally {
     loading.value = false
@@ -77,13 +79,13 @@ function addProject() {
   const name = newProjectName.value.trim()
   if (!name) return
   if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
-    toast.error('Tên project chỉ gồm chữ, số, . _ -')
+    toast.error(t('projects.errInvalidName'))
     return
   }
   rememberName(name)
   newProjectName.value = ''
   loadProject(name)
-  toast.success(`Đã thêm dự án "${name}". Tạo cấu hình notebook cho nó bên dưới.`)
+  toast.success(t('projects.addedProject', { name }))
 }
 
 // ---- Modal cấu hình notebook ----
@@ -121,7 +123,7 @@ function openEdit(cfg) {
 async function submit() {
   for (const [k, v] of Object.entries(form)) {
     if (!String(v).trim()) {
-      toast.error(`Thiếu trường "${k}"`)
+      toast.error(t('projects.missingField', { field: k }))
       return
     }
   }
@@ -129,10 +131,10 @@ async function submit() {
   try {
     if (editMode.value) {
       await api.updateProjectConfig(form.project_name, form.notebook_env, { ...form })
-      toast.success('Đã cập nhật cấu hình')
+      toast.success(t('projects.updatedConfig'))
     } else {
       await api.upsertProjectConfig({ ...form })
-      toast.success('Đã tạo cấu hình')
+      toast.success(t('projects.createdConfig'))
     }
     rememberName(form.project_name)
     modalOpen.value = false
@@ -145,10 +147,10 @@ async function submit() {
 }
 
 async function removeConfig(cfg) {
-  if (!confirm(`Xóa cấu hình ${cfg.project_name} / ${cfg.notebook_env}?`)) return
+  if (!confirm(t('projects.confirmDelete', { project: cfg.project_name, env: cfg.notebook_env }))) return
   try {
     await api.deleteProjectConfig(cfg.project_name, cfg.notebook_env)
-    toast.success('Đã xóa cấu hình')
+    toast.success(t('projects.deletedConfig'))
     await loadProject(cfg.project_name)
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : String(e))
@@ -160,46 +162,45 @@ async function removeConfig(cfg) {
   <div class="card">
     <div class="section-head">
       <div>
-        <h2 class="mb0">Dự án & cấu hình NotebookLM</h2>
+        <h2 class="mb0">{{ t('projects.title') }}</h2>
         <p class="faint mb0" style="font-size:.8rem">
-          Mỗi dự án gồm nhiều môi trường (notebook_env). Danh sách lấy từ backend
-          (<span class="mono">GET /project-notebook-configs</span>); tên vừa thêm nhưng chưa có cấu hình được giữ tạm ở trình duyệt.
+          {{ t('projects.description') }}
         </p>
       </div>
-      <button class="btn btn-sm" @click="loadAll" :disabled="loading">Làm mới</button>
+      <button class="btn btn-sm" @click="loadAll" :disabled="loading">{{ t('common.refresh') }}</button>
     </div>
 
     <div class="row wrap">
       <input
         v-model="newProjectName"
-        placeholder="Tên dự án mới (vd: obsidian-wiki)"
+        :placeholder="t('projects.newProjectPlaceholder')"
         style="max-width:320px"
         @keyup.enter="addProject"
       />
-      <button class="btn btn-primary" @click="addProject">+ Thêm dự án</button>
+      <button class="btn btn-primary" @click="addProject">{{ t('projects.addProject') }}</button>
     </div>
   </div>
 
   <div v-if="!knownNames.length" class="card mt1 empty">
-    Chưa có dự án nào. Thêm một dự án ở trên để bắt đầu.
+    {{ t('projects.emptyState') }}
   </div>
 
   <div v-for="name in knownNames" :key="name" class="card mt1">
     <div class="section-head">
       <h2 class="mb0">❖ {{ name }}</h2>
       <div class="row">
-        <button class="btn btn-sm btn-primary" @click="openCreate(name)">+ Cấu hình</button>
+        <button class="btn btn-sm btn-primary" @click="openCreate(name)">{{ t('projects.addConfig') }}</button>
         <button class="btn btn-sm" @click="loadProject(name)">↻</button>
-        <button class="btn btn-sm btn-danger" @click="forgetName(name)" title="Bỏ khỏi danh sách cục bộ">Ẩn</button>
+        <button class="btn btn-sm btn-danger" @click="forgetName(name)" :title="t('projects.hideTooltip')">{{ t('projects.hide') }}</button>
       </div>
     </div>
 
-    <div v-if="projects[name]?.loading" class="row"><span class="spinner"></span> Đang tải…</div>
+    <div v-if="projects[name]?.loading" class="row"><span class="spinner"></span> {{ t('common.loading') }}</div>
     <p v-else-if="projects[name]?.error" class="faint mono">{{ projects[name].error }}</p>
 
     <table v-else-if="projects[name]?.configs?.length">
       <thead>
-        <tr><th>Môi trường</th><th>Notebook ID</th><th>Auth</th><th></th></tr>
+        <tr><th>{{ t('projects.colEnv') }}</th><th>{{ t('projects.colNotebookId') }}</th><th>{{ t('projects.colAuth') }}</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="cfg in projects[name].configs" :key="cfg.notebook_env">
@@ -208,43 +209,43 @@ async function removeConfig(cfg) {
           <td class="mono muted">{{ cfg.notebooklm_auth_name }}</td>
           <td>
             <div class="row" style="justify-content:flex-end">
-              <button class="btn btn-sm" @click="openEdit(cfg)">Sửa</button>
-              <button class="btn btn-sm btn-danger" @click="removeConfig(cfg)">Xóa</button>
+              <button class="btn btn-sm" @click="openEdit(cfg)">{{ t('common.edit') }}</button>
+              <button class="btn btn-sm btn-danger" @click="removeConfig(cfg)">{{ t('common.delete') }}</button>
             </div>
           </td>
         </tr>
       </tbody>
     </table>
-    <p v-else class="faint">Chưa có cấu hình notebook nào cho dự án này.</p>
+    <p v-else class="faint">{{ t('projects.noConfig') }}</p>
   </div>
 
   <ModalDialog
     v-if="modalOpen"
-    :title="editMode ? 'Sửa cấu hình notebook' : 'Tạo cấu hình notebook'"
+    :title="editMode ? t('projects.editConfigTitle') : t('projects.createConfigTitle')"
     @close="modalOpen = false"
   >
     <label class="field">
-      <span class="field-label">Tên dự án</span>
+      <span class="field-label">{{ t('projects.fieldProjectName') }}</span>
       <input v-model="form.project_name" :disabled="editMode" />
     </label>
     <label class="field">
-      <span class="field-label">Môi trường (notebook_env)</span>
-      <input v-model="form.notebook_env" :disabled="editMode" placeholder="vd: prod, staging" />
+      <span class="field-label">{{ t('projects.fieldEnv') }}</span>
+      <input v-model="form.notebook_env" :disabled="editMode" :placeholder="t('projects.fieldEnvPlaceholder')" />
     </label>
     <label class="field">
-      <span class="field-label">Notebook ID</span>
+      <span class="field-label">{{ t('projects.fieldNotebookId') }}</span>
       <input v-model="form.notebook_id" />
     </label>
     <label class="field">
-      <span class="field-label">Tên auth NotebookLM (notebooklm_auth_name)</span>
-      <input v-model="form.notebooklm_auth_name" placeholder="tên file auth trong notebooklm_auth/" />
+      <span class="field-label">{{ t('projects.fieldAuthName') }}</span>
+      <input v-model="form.notebooklm_auth_name" :placeholder="t('projects.fieldAuthPlaceholder')" />
     </label>
 
     <template #footer>
-      <button class="btn" @click="modalOpen = false">Hủy</button>
+      <button class="btn" @click="modalOpen = false">{{ t('common.cancel') }}</button>
       <button class="btn btn-primary" :disabled="saving" @click="submit">
         <span v-if="saving" class="spinner"></span>
-        {{ editMode ? 'Lưu' : 'Tạo' }}
+        {{ editMode ? t('common.save') : t('common.create') }}
       </button>
     </template>
   </ModalDialog>

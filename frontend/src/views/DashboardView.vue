@@ -2,6 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api, ApiError } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
+import { useI18n } from '@/i18n'
+
+const { t } = useI18n()
 
 const loading = ref(true)
 const knowledge = ref(null)
@@ -56,24 +59,24 @@ function normalizeCheck(v) {
 </script>
 
 <template>
-  <div v-if="loading" class="row"><span class="spinner"></span> Đang tải…</div>
+  <div v-if="loading" class="row"><span class="spinner"></span> {{ t('common.loading') }}</div>
 
   <template v-else>
     <div class="grid cols-4">
       <div class="card stat">
-        <span class="stat-label">Tài liệu đã ingest</span>
+        <span class="stat-label">{{ t('dashboard.statDocsIngested') }}</span>
         <span class="stat-value">{{ docs.ingested }}</span>
       </div>
       <div class="card stat">
-        <span class="stat-label">Thất bại</span>
+        <span class="stat-label">{{ t('dashboard.statFailed') }}</span>
         <span class="stat-value" :style="docs.failed ? 'color:var(--err)' : ''">{{ docs.failed }}</span>
       </div>
       <div class="card stat">
-        <span class="stat-label">Dead-letter</span>
+        <span class="stat-label">{{ t('dashboard.statDeadLetter') }}</span>
         <span class="stat-value" :style="docs.dead_letter ? 'color:var(--err)' : ''">{{ docs.dead_letter }}</span>
       </div>
       <div class="card stat">
-        <span class="stat-label">Lần ingest gần nhất</span>
+        <span class="stat-label">{{ t('dashboard.statLastRun') }}</span>
         <span style="margin-top:.4rem"><StatusBadge :status="lastRun?.status || 'unknown'" /></span>
       </div>
     </div>
@@ -81,11 +84,11 @@ function normalizeCheck(v) {
     <div class="grid cols-2 mt1">
       <div class="card">
         <div class="section-head">
-          <h2 class="mb0">Sức khỏe hệ thống</h2>
-          <button class="btn btn-sm" @click="load">Làm mới</button>
+          <h2 class="mb0">{{ t('dashboard.systemHealth') }}</h2>
+          <button class="btn btn-sm" @click="load">{{ t('common.refresh') }}</button>
         </div>
         <table v-if="checks.length">
-          <thead><tr><th>Service</th><th>Thành phần</th><th>Trạng thái</th></tr></thead>
+          <thead><tr><th>{{ t('dashboard.colService') }}</th><th>{{ t('dashboard.colComponent') }}</th><th>{{ t('dashboard.colStatus') }}</th></tr></thead>
           <tbody>
             <tr v-for="c in checks" :key="c.svc + c.name">
               <td class="muted">{{ c.svc }}</td>
@@ -94,24 +97,24 @@ function normalizeCheck(v) {
             </tr>
           </tbody>
         </table>
-        <p v-else class="faint">Không lấy được chi tiết readiness.</p>
+        <p v-else class="faint">{{ t('dashboard.noReadiness') }}</p>
       </div>
 
       <div class="card">
-        <h2>Git repository</h2>
+        <h2>{{ t('dashboard.gitRepo') }}</h2>
         <template v-if="git">
-          <div class="row spread"><span class="muted">Branch</span><span class="mono">{{ git.active_branch }}</span></div>
-          <div class="row spread"><span class="muted">Dirty</span><StatusBadge :status="git.is_dirty ? 'warn' : 'ok'" /></div>
-          <div class="row spread"><span class="muted">Đã đổi</span><span>{{ (git.changed_files || []).length }}</span></div>
-          <div class="row spread"><span class="muted">Staged</span><span>{{ (git.staged_files || []).length }}</span></div>
-          <div class="row spread"><span class="muted">Untracked</span><span>{{ (git.untracked_files || []).length }}</span></div>
+          <div class="row spread"><span class="muted">{{ t('dashboard.branch') }}</span><span class="mono">{{ git.active_branch }}</span></div>
+          <div class="row spread"><span class="muted">{{ t('dashboard.dirty') }}</span><StatusBadge :status="git.is_dirty ? 'warn' : 'ok'" /></div>
+          <div class="row spread"><span class="muted">{{ t('dashboard.changed') }}</span><span>{{ (git.changed_files || []).length }}</span></div>
+          <div class="row spread"><span class="muted">{{ t('dashboard.staged') }}</span><span>{{ (git.staged_files || []).length }}</span></div>
+          <div class="row spread"><span class="muted">{{ t('dashboard.untracked') }}</span><span>{{ (git.untracked_files || []).length }}</span></div>
         </template>
-        <p v-else class="faint">agent_service không phản hồi git status.</p>
+        <p v-else class="faint">{{ t('dashboard.gitUnavailable') }}</p>
       </div>
     </div>
 
     <div v-if="errors.length" class="card mt1" style="border-color:var(--err)">
-      <h3 style="color:var(--err)">Cảnh báo kết nối</h3>
+      <h3 style="color:var(--err)">{{ t('dashboard.connectionWarning') }}</h3>
       <ul class="mono" style="margin:0;padding-left:1.2rem">
         <li v-for="(e, i) in errors" :key="i">{{ e }}</li>
       </ul>

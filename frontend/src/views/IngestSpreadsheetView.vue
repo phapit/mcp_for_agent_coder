@@ -4,9 +4,11 @@ import { api, ApiError } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useSettings } from '@/composables/useSettings'
 import { LANGUAGES } from '@/constants/languages'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
 const { settings, ready: settingsReady } = useSettings()
+const { t } = useI18n()
 
 const form = reactive({
   project_name: '',
@@ -32,7 +34,7 @@ async function loadProjects() {
     const list = await api.listAllProjects()
     projects.value = Array.isArray(list) ? list : list?.projects || []
   } catch (e) {
-    toast.error(`Tải danh sách dự án: ${e instanceof ApiError ? e.message : e}`)
+    toast.error(t('ingestSpreadsheet.loadProjectsErrorPrefix', { error: e instanceof ApiError ? e.message : e }))
   } finally {
     loadingProjects.value = false
   }
@@ -45,7 +47,7 @@ function onProjectChange() {
 
 async function submit() {
   if (!form.project_name || !form.notebook_env || !form.spreadsheet_id.trim()) {
-    toast.error('Cần chọn dự án, environment và nhập spreadsheet_id.')
+    toast.error(t('ingestSpreadsheet.missingFields'))
     return
   }
   submitting.value = true
@@ -59,12 +61,12 @@ async function submit() {
     if (form.language) payload.language = form.language
     result.value = await api.ingestSpreadsheet(payload)
     if (form.language && result.value?.report_reused) {
-      toast.info('Report đã tồn tại nên được tái dùng — ngôn ngữ đã chọn KHÔNG được áp dụng. Đổi tên output để tạo report mới.')
+      toast.info(t('ingestSpreadsheet.reportReusedToast'))
     }
-    toast.success('Đã export spreadsheet và kích hoạt ingest.')
+    toast.success(t('ingestSpreadsheet.exportSuccess'))
   } catch (e) {
-    if (e?.status === 429) toast.error('NotebookLM đang bị rate limit (429) — có thể chạy lại sau, không tạo bản trùng.')
-    else if (e?.status === 404) toast.error('Không tìm thấy cấu hình dự án/environment (404).')
+    if (e?.status === 429) toast.error(t('ingestSpreadsheet.err429'))
+    else if (e?.status === 404) toast.error(t('ingestSpreadsheet.err404'))
     else toast.error(e instanceof ApiError ? e.message : String(e))
   } finally {
     submitting.value = false
@@ -81,67 +83,66 @@ onMounted(async () => {
 <template>
   <div class="card">
     <div class="section-head">
-      <h2 class="mb0">Ingest Spreadsheet (NotebookLM)</h2>
-      <button class="btn btn-sm" @click="loadProjects" :disabled="loadingProjects">Tải lại dự án</button>
+      <h2 class="mb0">{{ t('ingestSpreadsheet.title') }}</h2>
+      <button class="btn btn-sm" @click="loadProjects" :disabled="loadingProjects">{{ t('ingestSpreadsheet.reloadProjects') }}</button>
     </div>
     <p class="faint mt0" style="font-size:.85rem">
-      Resolve cấu hình NotebookLM theo dự án/environment rồi export Markdown, sau đó tự động ingest.
+      {{ t('ingestSpreadsheet.description') }}
     </p>
 
     <div class="row wrap" style="gap:.8rem">
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Dự án</span>
+        <span class="field-label">{{ t('ingestSpreadsheet.projectLabel') }}</span>
         <select v-model="form.project_name" @change="onProjectChange">
-          <option value="" disabled>— chọn dự án —</option>
+          <option value="" disabled>{{ t('ingestSpreadsheet.selectProject') }}</option>
           <option v-for="p in projects" :key="p.project_name" :value="p.project_name">{{ p.project_name }}</option>
         </select>
       </label>
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Environment</span>
+        <span class="field-label">{{ t('ingestSpreadsheet.envLabel') }}</span>
         <select v-model="form.notebook_env" :disabled="!envs.length">
-          <option value="" disabled>— chọn env —</option>
+          <option value="" disabled>{{ t('ingestSpreadsheet.selectEnv') }}</option>
           <option v-for="e in envs" :key="e" :value="e">{{ e }}</option>
         </select>
       </label>
     </div>
 
     <label class="field">
-      <span class="field-label">Spreadsheet ID</span>
+      <span class="field-label">{{ t('ingestSpreadsheet.spreadsheetIdLabel') }}</span>
       <input v-model="form.spreadsheet_id" placeholder="Google Sheet ID" />
     </label>
     <div class="row wrap" style="gap:.8rem">
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Tên file output</span>
+        <span class="field-label">{{ t('ingestSpreadsheet.outputNameLabel') }}</span>
         <input v-model="form.output_name" placeholder="spreadsheet.md" />
       </label>
       <label class="field" style="flex:1;min-width:160px">
-        <span class="field-label">Ngôn ngữ đầu ra (generate)</span>
+        <span class="field-label">{{ t('ingestSpreadsheet.languageLabel') }}</span>
         <select v-model="form.language">
           <option v-for="l in LANGUAGES" :key="l.code" :value="l.code">{{ l.label }}</option>
         </select>
       </label>
     </div>
     <p class="faint mt0 mb0" style="font-size:.8rem">
-      Ngôn ngữ chỉ áp dụng khi tạo report mới. Nếu report cho spreadsheet này đã tồn tại, hệ thống tái
-      dùng và bỏ qua ngôn ngữ — đổi tên file output để buộc tạo report mới.
+      {{ t('ingestSpreadsheet.languageHint') }}
     </p>
 
     <button class="btn btn-primary" :disabled="submitting" @click="submit">
       <span v-if="submitting" class="spinner"></span>
-      {{ submitting ? 'Đang export…' : '▶ Export & ingest' }}
+      {{ submitting ? t('ingestSpreadsheet.submitting') : t('ingestSpreadsheet.submitButton') }}
     </button>
   </div>
 
   <div v-if="result" class="card mt1">
-    <h2>Kết quả</h2>
-    <div class="row spread"><span class="muted">Notebook ID</span><span class="mono">{{ result.notebook_id }}</span></div>
-    <div class="row spread"><span class="muted">Source ID</span><span class="mono">{{ result.source_id ?? '—' }}</span></div>
-    <div class="row spread"><span class="muted">Artifact ID</span><span class="mono">{{ result.artifact_id ?? '—' }}</span></div>
-    <div class="row spread"><span class="muted">Output MD</span><span class="mono">{{ result.output_md }}</span></div>
-    <div class="row spread"><span class="muted">Ngôn ngữ</span><span class="mono">{{ result.language ?? '— (mặc định)' }}</span></div>
-    <div v-if="result.report_reused" class="row spread"><span class="muted">Report</span><span class="badge badge-warn">tái dùng (ngôn ngữ không áp dụng)</span></div>
+    <h2>{{ t('ingestSpreadsheet.result') }}</h2>
+    <div class="row spread"><span class="muted">{{ t('ingestSpreadsheet.notebookId') }}</span><span class="mono">{{ result.notebook_id }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('ingestSpreadsheet.sourceId') }}</span><span class="mono">{{ result.source_id ?? '—' }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('ingestSpreadsheet.artifactId') }}</span><span class="mono">{{ result.artifact_id ?? '—' }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('ingestSpreadsheet.outputMd') }}</span><span class="mono">{{ result.output_md }}</span></div>
+    <div class="row spread"><span class="muted">{{ t('ingestSpreadsheet.language') }}</span><span class="mono">{{ result.language ?? t('ingestSpreadsheet.defaultSuffix') }}</span></div>
+    <div v-if="result.report_reused" class="row spread"><span class="muted">{{ t('ingestSpreadsheet.reportLabel') }}</span><span class="badge badge-warn">{{ t('ingestSpreadsheet.reportReusedBadge') }}</span></div>
     <details class="mt1">
-      <summary class="muted" style="cursor:pointer">Xem JSON đầy đủ</summary>
+      <summary class="muted" style="cursor:pointer">{{ t('common.viewJson') }}</summary>
       <pre class="pre mt1">{{ JSON.stringify(result, null, 2) }}</pre>
     </details>
   </div>

@@ -2,8 +2,10 @@
 import { reactive, ref } from 'vue'
 import { api, ApiError } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
+const { t } = useI18n()
 
 const form = reactive({
   query: '',
@@ -29,7 +31,7 @@ function buildFilters() {
 
 async function run() {
   if (!form.query.trim()) {
-    toast.error('Nhập nội dung cần tìm.')
+    toast.error(t('search.emptyQuery'))
     return
   }
   loading.value = true
@@ -56,59 +58,59 @@ function fmt(n) {
 <template>
   <div class="grid cols-2">
     <div class="card">
-      <h2>Tìm kiếm ngữ cảnh (retrieval)</h2>
+      <h2>{{ t('search.title') }}</h2>
       <label class="field">
-        <span class="field-label">Câu truy vấn</span>
-        <textarea v-model="form.query" placeholder="Nhập câu hỏi hoặc từ khóa…" @keydown.ctrl.enter="run" />
+        <span class="field-label">{{ t('search.queryLabel') }}</span>
+        <textarea v-model="form.query" :placeholder="t('search.queryPlaceholder')" @keydown.ctrl.enter="run" />
       </label>
       <div class="row wrap" style="gap:.8rem">
         <label class="field" style="flex:1;min-width:120px">
-          <span class="field-label">Số kết quả (limit)</span>
+          <span class="field-label">{{ t('search.limitLabel') }}</span>
           <input type="number" min="1" max="20" v-model.number="form.limit" />
         </label>
         <label class="field" style="flex:1;min-width:120px">
-          <span class="field-label">Version (tùy chọn)</span>
+          <span class="field-label">Version</span>
           <input type="number" v-model="form.version" placeholder="—" />
         </label>
       </div>
       <button class="btn btn-primary" :disabled="loading" @click="run">
         <span v-if="loading" class="spinner"></span>
-        {{ loading ? 'Đang tìm…' : '🔍 Tìm kiếm' }}
+        {{ loading ? t('search.searching') : t('search.searchButton') }}
       </button>
-      <p class="faint mt1 mb0" style="font-size:.8rem">Ctrl+Enter để tìm nhanh.</p>
+      <p class="faint mt1 mb0" style="font-size:.8rem">{{ t('search.searchHint') }}</p>
     </div>
 
     <div class="card">
-      <h2>Bộ lọc (filters)</h2>
+      <h2>{{ t('search.filters') }}</h2>
       <label class="field">
         <span class="field-label">Project</span>
-        <input v-model="form.project" placeholder="vd: obsidian-wiki" />
+        <input v-model="form.project" :placeholder="t('search.projectPlaceholder')" />
       </label>
       <label class="field">
         <span class="field-label">Environment</span>
-        <input v-model="form.environment" placeholder="vd: prod / dev" />
+        <input v-model="form.environment" :placeholder="t('search.envPlaceholder')" />
       </label>
       <label class="field">
         <span class="field-label">Document type</span>
-        <input v-model="form.document_type" placeholder="vd: markdown" />
+        <input v-model="form.document_type" :placeholder="t('search.docTypePlaceholder')" />
       </label>
-      <p class="faint mb0" style="font-size:.8rem">Để trống nghĩa là không lọc theo trường đó.</p>
+      <p class="faint mb0" style="font-size:.8rem">{{ t('search.filterHint') }}</p>
     </div>
   </div>
 
   <div v-if="results" class="card mt1">
     <div class="section-head">
-      <h2 class="mb0">Kết quả ({{ results.length }})</h2>
+      <h2 class="mb0">{{ t('search.results', { count: results.length }) }}</h2>
       <span v-if="elapsed != null" class="faint">{{ elapsed }} ms</span>
     </div>
-    <p v-if="!results.length" class="faint">Không có đoạn nào vượt ngưỡng liên quan.</p>
+    <p v-if="!results.length" class="faint">{{ t('search.noResults') }}</p>
     <div v-for="(m, i) in results" :key="i" class="card" style="background:var(--bg);margin-bottom:.8rem">
       <div class="row spread">
         <span class="mono">{{ m.source }}<span v-if="m.heading"> › {{ m.heading }}</span></span>
         <span class="badge badge-ok">score {{ fmt(m.score) }}</span>
       </div>
       <div class="row wrap faint" style="gap:1rem;font-size:.78rem;margin:.3rem 0 .5rem">
-        <span v-if="m.start_line">dòng {{ m.start_line }}–{{ m.end_line }}</span>
+        <span v-if="m.start_line">{{ t('search.lineRange', { start: m.start_line, end: m.end_line }) }}</span>
         <span>vector {{ fmt(m.vector_score) }}</span>
         <span>keyword {{ fmt(m.keyword_score) }}</span>
         <span>rerank {{ fmt(m.rerank_score) }}</span>

@@ -2,8 +2,10 @@
 import { onMounted, reactive, ref } from 'vue'
 import { api, ApiError } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/i18n'
 
 const toast = useToast()
+const { t } = useI18n()
 
 const form = reactive({
   title: '',
@@ -37,7 +39,7 @@ async function refreshList() {
 
 async function submit() {
   if (!form.title.trim() || !form.description.trim()) {
-    toast.error('Nhập tiêu đề và mô tả yêu cầu.')
+    toast.error(t('clientRequests.missingFields'))
     return
   }
   submitting.value = true
@@ -52,8 +54,8 @@ async function submit() {
     const record = await api.createClientRequest(payload)
     toast.success(
       record.context.has_related_specs
-        ? `Đã tìm thấy ${record.context.excerpts.length} trích đoạn đặc tả liên quan.`
-        : 'Không có đặc tả liên quan — gói ngữ cảnh sẽ cảnh báo agent.',
+        ? t('clientRequests.foundSpecs', { count: record.context.excerpts.length })
+        : t('clientRequests.noRelatedSpecs'),
     )
     form.title = ''
     form.description = ''
@@ -97,9 +99,9 @@ async function copyMarkdown() {
   if (!roleContext.value?.markdown) return
   try {
     await navigator.clipboard.writeText(roleContext.value.markdown)
-    toast.success(`Đã sao chép ngữ cảnh cho agent ${activeRole.value}.`)
+    toast.success(t('clientRequests.copiedContext', { role: activeRole.value }))
   } catch {
-    toast.error('Không sao chép được (clipboard bị chặn).')
+    toast.error(t('clientRequests.copyFailed'))
   }
 }
 
@@ -109,7 +111,7 @@ async function reanalyze() {
   try {
     selected.value = await api.reanalyzeClientRequest(selected.value.request_id)
     await loadRole(activeRole.value)
-    toast.success('Đã phân tích lại trên kho đặc tả hiện tại.')
+    toast.success(t('clientRequests.reanalyzed'))
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : String(e))
   } finally {
@@ -127,50 +129,49 @@ onMounted(refreshList)
 <template>
   <div class="grid cols-2">
     <div class="card">
-      <h2>Gửi yêu cầu từ khách hàng</h2>
+      <h2>{{ t('clientRequests.submitTitle') }}</h2>
       <label class="field">
-        <span class="field-label">Tiêu đề</span>
-        <input v-model="form.title" placeholder="vd: Session tự gia hạn khi còn hoạt động" />
+        <span class="field-label">{{ t('clientRequests.fieldTitle') }}</span>
+        <input v-model="form.title" :placeholder="t('clientRequests.titlePlaceholder')" />
       </label>
       <label class="field">
-        <span class="field-label">Mô tả chi tiết</span>
+        <span class="field-label">{{ t('clientRequests.fieldDescription') }}</span>
         <textarea
           v-model="form.description"
           rows="5"
-          placeholder="Mô tả tính năng mới hoặc lỗi phát sinh mà khách cung cấp…"
+          :placeholder="t('clientRequests.descriptionPlaceholder')"
           @keydown.ctrl.enter="submit"
         />
       </label>
       <div class="row wrap" style="gap:.8rem">
         <label class="field" style="flex:1;min-width:140px">
-          <span class="field-label">Loại yêu cầu</span>
+          <span class="field-label">{{ t('clientRequests.fieldType') }}</span>
           <select v-model="form.request_type">
-            <option value="feature">Thêm/thay đổi tính năng</option>
-            <option value="bug">Sửa lỗi</option>
+            <option value="feature">{{ t('clientRequests.typeFeature') }}</option>
+            <option value="bug">{{ t('clientRequests.typeBug') }}</option>
           </select>
         </label>
         <label class="field" style="flex:1;min-width:140px">
-          <span class="field-label">Dự án (tùy chọn)</span>
-          <input v-model="form.project" placeholder="lọc đặc tả theo dự án" />
+          <span class="field-label">{{ t('clientRequests.fieldProject') }}</span>
+          <input v-model="form.project" :placeholder="t('clientRequests.projectPlaceholder')" />
         </label>
         <label class="field" style="flex:1;min-width:140px">
-          <span class="field-label">Người yêu cầu (tùy chọn)</span>
-          <input v-model="form.requester" placeholder="tên khách / đầu mối" />
+          <span class="field-label">{{ t('clientRequests.fieldRequester') }}</span>
+          <input v-model="form.requester" :placeholder="t('clientRequests.requesterPlaceholder')" />
         </label>
       </div>
       <button class="btn btn-primary" :disabled="submitting" @click="submit">
         <span v-if="submitting" class="spinner"></span>
-        {{ submitting ? 'Đang phân tích…' : '✉ Gửi & truy xuất đặc tả liên quan' }}
+        {{ submitting ? t('clientRequests.submitting') : t('clientRequests.submitButton') }}
       </button>
       <p class="faint mt1 mb0" style="font-size:.8rem">
-        Hệ thống truy xuất đặc tả hiện có liên quan và đóng gói ngữ cảnh có trích dẫn cho agent
-        PM/Coder/Tester. Ctrl+Enter để gửi nhanh.
+        {{ t('clientRequests.submitHint') }}
       </p>
     </div>
 
     <div class="card">
-      <h2>Danh sách yêu cầu ({{ requests.length }})</h2>
-      <p v-if="!requests.length" class="faint">Chưa có yêu cầu nào.</p>
+      <h2>{{ t('clientRequests.listTitle', { count: requests.length }) }}</h2>
+      <p v-if="!requests.length" class="faint">{{ t('clientRequests.noRequests') }}</p>
       <div
         v-for="r in requests"
         :key="r.request_id"
@@ -181,14 +182,14 @@ onMounted(refreshList)
         <div class="row spread">
           <strong>{{ r.title }}</strong>
           <span class="badge" :class="r.request_type === 'bug' ? 'badge-warn' : 'badge-ok'">
-            {{ r.request_type === 'bug' ? 'Sửa lỗi' : 'Tính năng' }}
+            {{ r.request_type === 'bug' ? t('clientRequests.badgeBug') : t('clientRequests.badgeFeature') }}
           </span>
         </div>
         <div class="row wrap faint" style="gap:1rem;font-size:.78rem;margin-top:.3rem">
           <span class="mono">{{ r.request_id }}</span>
-          <span v-if="r.project">dự án: {{ r.project }}</span>
+          <span v-if="r.project">{{ t('clientRequests.projectLabel', { project: r.project }) }}</span>
           <span v-if="r.context">
-            {{ r.context.has_related_specs ? 'có đặc tả liên quan' : '⚠️ chưa có đặc tả' }}
+            {{ r.context.has_related_specs ? t('clientRequests.hasSpecs') : t('clientRequests.noSpecs') }}
           </span>
         </div>
       </div>
@@ -200,7 +201,7 @@ onMounted(refreshList)
       <h2 class="mb0">{{ selected.title }}</h2>
       <button class="btn" :disabled="reanalyzing" @click="reanalyze">
         <span v-if="reanalyzing" class="spinner"></span>
-        {{ reanalyzing ? 'Đang phân tích…' : '⟳ Phân tích lại' }}
+        {{ reanalyzing ? t('clientRequests.reanalyzing') : t('clientRequests.reanalyzeButton') }}
       </button>
     </div>
     <p style="white-space:pre-wrap">{{ selected.description }}</p>
@@ -210,14 +211,14 @@ onMounted(refreshList)
     </div>
 
     <template v-if="selected.context && selected.context.has_related_specs">
-      <h3>Tài liệu đặc tả bị ảnh hưởng ({{ selected.context.related_documents.length }})</h3>
+      <h3>{{ t('clientRequests.affectedDocs', { count: selected.context.related_documents.length }) }}</h3>
       <div class="row wrap" style="gap:.5rem;margin-bottom:.8rem">
         <span v-for="d in selected.context.related_documents" :key="d.source" class="badge badge-ok mono">
-          {{ d.source }} ({{ d.excerpt_count }} đoạn, score {{ fmt(d.best_score) }})
+          {{ t('clientRequests.excerptsScore', { source: d.source, count: d.excerpt_count, score: fmt(d.best_score) }) }}
         </span>
       </div>
 
-      <h3>Trích đoạn đặc tả liên quan ({{ selected.context.excerpts.length }})</h3>
+      <h3>{{ t('clientRequests.relatedExcerpts', { count: selected.context.excerpts.length }) }}</h3>
       <div
         v-for="(e, i) in selected.context.excerpts"
         :key="i"
@@ -229,14 +230,14 @@ onMounted(refreshList)
           <span class="badge badge-ok">score {{ fmt(e.score) }}</span>
         </div>
         <div v-if="e.start_line" class="faint" style="font-size:.78rem;margin:.3rem 0 .5rem">
-          dòng {{ e.start_line }}–{{ e.end_line }}
+          {{ t('clientRequests.lineRange', { start: e.start_line, end: e.end_line }) }}
         </div>
         <pre class="pre" style="white-space:pre-wrap">{{ e.text }}</pre>
       </div>
     </template>
 
     <div class="section-head mt1">
-      <h3 class="mb0">Ngữ cảnh cho agent</h3>
+      <h3 class="mb0">{{ t('clientRequests.agentContext') }}</h3>
       <div class="row" style="gap:.4rem">
         <button
           v-for="r in ROLES"
@@ -247,14 +248,13 @@ onMounted(refreshList)
         >
           {{ r.label }}
         </button>
-        <button class="btn" :disabled="!roleContext" @click="copyMarkdown">📋 Sao chép Markdown</button>
+        <button class="btn" :disabled="!roleContext" @click="copyMarkdown">{{ t('clientRequests.copyMarkdown') }}</button>
       </div>
     </div>
     <p class="faint" style="font-size:.8rem">
-      Dán markdown này vào prompt của agent {{ activeRole }} — gồm yêu cầu, quy tắc chống ảo giác và
-      trích đoạn đặc tả có nguồn.
+      {{ t('clientRequests.agentContextHint', { role: activeRole }) }}
     </p>
-    <div v-if="loadingContext" class="faint"><span class="spinner"></span> Đang tải…</div>
+    <div v-if="loadingContext" class="faint"><span class="spinner"></span> {{ t('common.loading') }}</div>
     <pre v-else-if="roleContext" class="pre" style="white-space:pre-wrap;max-height:420px;overflow:auto">{{
       roleContext.markdown
     }}</pre>
