@@ -29,6 +29,7 @@ Nguyên tắc độc lập: Mỗi thành viên hoạt động độc lập, khô
 6. Có toàn quyền sử dụng các câu lệnh trong workspace/path hiện tại:
  - workspace/path (`working dir`) hiện tại là `/mnt/ProjectsAndData/Obsidian-Wiki`. việc đầu tiên là phải cd tới workspace/path hiện tại.
  - tuyệt đối không được tự ý scan, chỉnh sửa, xóa các folder/files trong danh sách sau: 
+  + `app_data`
   + `docs/imported` 
   + `excel_sources` 
   + `mongo_data` 
