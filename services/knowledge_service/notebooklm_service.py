@@ -22,6 +22,16 @@ class NotebookLMResult:
     report_reused: bool = False  # True nếu tái dùng report cũ → --language không được áp dụng
 
 
+# Chỉ thị "khóa phạm vi" (Scope-Locking) theo docs/Huong_dan_su_dung_NotebookLM_hieu_qua.md:
+# ép NotebookLM chỉ trả lời từ source trong notebook, trích dẫn nguồn, không suy đoán.
+GROUNDING_PREAMBLE = (
+    "Chỉ sử dụng thông tin từ các nguồn (source) có trong notebook này. "
+    "Không bổ sung kiến thức bên ngoài; không đề xuất tính năng, công nghệ "
+    "hoặc luồng xử lý không có trong tài liệu. Với mỗi nhận định quan trọng, "
+    "trích dẫn nguồn tương ứng. Nếu thông tin được hỏi không có trong tài "
+    "liệu, ghi rõ 'không có trong tài liệu nguồn' thay vì suy đoán."
+)
+
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
 
@@ -176,8 +186,9 @@ class NotebookLMService:
         if not prompt.strip():
             raise NotebookLMError("prompt must not be empty.")
 
+        grounded_prompt = f"{GROUNDING_PREAMBLE}\n\nYêu cầu: {prompt.strip()}"
         generate_args = [
-            "generate", "report", prompt, "--format", report_format, "-n", self.notebook_id, "--no-wait",
+            "generate", "report", grounded_prompt, "--format", report_format, "-n", self.notebook_id, "--no-wait",
         ]
         if append and report_format != "custom":
             # --append không có tác dụng với --format custom (theo tài liệu NotebookLM CLI).

@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from notebooklm_service import NotebookLMError, NotebookLMService
+from notebooklm_service import GROUNDING_PREAMBLE, NotebookLMError, NotebookLMService
 
 
 def test_process_spreadsheet_runs_source_report_and_download(tmp_path):
@@ -142,7 +142,8 @@ def test_generate_custom_report_runs_generate_wait_download(tmp_path):
     assert result.artifact_id == "art-9"
     assert result.output_md == str(tmp_path / "button-a.md")
     generate_call = next(c for c in calls if c[1:3] == ["generate", "report"])
-    assert generate_call[3] == "Mô tả chi tiết logic hoạt động của button A"
+    assert generate_call[3].startswith(GROUNDING_PREAMBLE)
+    assert generate_call[3].endswith("Yêu cầu: Mô tả chi tiết logic hoạt động của button A")
     assert generate_call[generate_call.index("--format") + 1] == "custom"
     assert calls[-2][1:3] == ["artifact", "wait"]
     assert calls[-1][1:3] == ["download", "report"]

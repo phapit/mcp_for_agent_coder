@@ -253,3 +253,22 @@ def test_markdown_no_specs_forbids_guessing():
 
     assert "KHÔNG suy đoán" in markdown
     assert "không bịa" in markdown
+
+
+def test_markdown_includes_scope_locking_and_type_rules():
+    package = client_requests.build_context_package("T\nD", [], {"mode": "dense"})
+    base = {"request_id": "req-x", "title": "T", "description": "D", "project": None}
+
+    feature_md = client_requests.render_context_markdown(
+        {**base, "request_type": "feature"}, package, "coder"
+    )
+    bug_md = client_requests.render_context_markdown(
+        {**base, "request_type": "bug"}, package, "coder"
+    )
+
+    for markdown in (feature_md, bug_md):
+        assert "Không đề xuất công nghệ, thư viện hoặc luồng xử lý" in markdown
+    assert "Đánh giá tác động trước" in feature_md
+    assert "Đánh giá tác động trước" not in bug_md
+    assert "hành vi ĐÚNG theo đặc tả" in bug_md
+    assert "hành vi ĐÚNG theo đặc tả" not in feature_md

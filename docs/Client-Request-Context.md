@@ -1,6 +1,6 @@
 # Tính năng: Yêu cầu khách hàng → Gói ngữ cảnh cho agent
 
-Cập nhật: 2026-07-16
+Cập nhật: 2026-07-17
 
 ## Mục đích
 
@@ -11,10 +11,15 @@ Tiếp nhận yêu cầu từ khách hàng (thêm tính năng / sửa lỗi), tr
 1. **Trích đoạn nguyên văn có nguồn**: mỗi trích đoạn kèm file nguồn, heading, số dòng và điểm liên quan (hybrid dense + BM25, rerank đa ngôn ngữ).
 2. **Tuyên bố rõ khi không có đặc tả**: nếu không trích đoạn nào vượt ngưỡng (`MIN_SCORE_THRESHOLD` / `MIN_RERANK_SCORE`), gói ngữ cảnh chứa cảnh báo "KHÔNG tìm thấy đặc tả — không suy đoán về hành vi hiện có" thay vì im lặng.
 3. **Quy tắc bắt buộc theo vai trò** (nhúng trong markdown):
-   - Chung: chỉ coi trích đoạn là "hành vi hiện có"; trích dẫn dạng `[n]`; thiếu thông tin thì ghi "chưa có đặc tả" và đặt câu hỏi, không bịa.
+   - Chung: chỉ coi trích đoạn là "hành vi hiện có"; trích dẫn dạng `[n]`; thiếu thông tin thì ghi "chưa có đặc tả" và đặt câu hỏi, không bịa; **khóa phạm vi** — không đề xuất công nghệ/thư viện/luồng xử lý không có trong trích đoạn, thứ mới phải đánh dấu ĐỀ XUẤT MỚI cần xác nhận.
    - PM: đối chiếu xung đột/trùng lặp, viết đặc tả cập nhật đánh dấu GIỮ NGUYÊN / THAY ĐỔI / MỚI.
    - Coder: giới hạn phạm vi thay đổi theo tài liệu bị ảnh hưởng, kiểm tra mâu thuẫn trước khi code.
    - Tester: test case cho hành vi mới + regression test cho hành vi hiện có, mỗi test ghi căn cứ.
+4. **Quy tắc đối chiếu chéo theo loại yêu cầu** (theo `docs/Huong_dan_su_dung_NotebookLM_hieu_qua.md` §2):
+   - `feature`: đánh giá tác động trước — liệt kê component/endpoint/luồng trong trích đoạn sẽ bị ảnh hưởng và ràng buộc thiết kế nào giới hạn cách làm.
+   - `bug`: xác định hành vi ĐÚNG theo đặc tả trước khi sửa; nếu trích đoạn ghi nhận lỗi/edge case tương tự, nêu nguyên nhân và cách xử lý đã có.
+
+Cùng nguyên tắc khóa phạm vi này, endpoint `POST /notebook-reports` (xem `routes_notebooklm.py`) tự động prepend chỉ thị grounding (`GROUNDING_PREAMBLE` trong `notebooklm_service.py`) vào mọi prompt gửi NotebookLM: chỉ dùng source trong notebook, trích dẫn nguồn, không suy đoán ngoài tài liệu. Giới hạn 1024 ký tự vẫn chỉ áp dụng cho prompt của người dùng.
 
 ## API (knowledge_service, yêu cầu `X-API-Key`)
 
@@ -63,7 +68,7 @@ Giải pháp căn cơ hơn (chưa làm): chuyển sang embedding đa ngôn ngữ
 
 ## Kiểm thử
 
-`services/knowledge_service/tests/test_client_requests.py` (8 test): tạo yêu cầu có/không có đặc tả liên quan, validate `request_type`/`role`, markdown theo vai trò, 404, reanalyze sau khi có đặc tả mới, cảnh báo cấm suy đoán. Chạy trong container:
+`services/knowledge_service/tests/test_client_requests.py` (15 test): tạo yêu cầu có/không có đặc tả liên quan, preview có/không lưu, validate `request_type`/`role`, markdown theo vai trò, quy tắc khóa phạm vi + quy tắc theo loại yêu cầu, 404, reanalyze sau khi có đặc tả mới, cảnh báo cấm suy đoán. Chạy trong container:
 
 ```bash
 docker exec knowledge_service sh -c \

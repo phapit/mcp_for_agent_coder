@@ -20,7 +20,18 @@ _COMMON_RULES = [
     "Khi trích dẫn hành vi hiện có, phải ghi kèm nguồn dạng [n] tương ứng với trích đoạn.",
     "Nếu thông tin cần thiết KHÔNG có trong trích đoạn: ghi rõ 'chưa có đặc tả' và nêu câu hỏi cần làm rõ — tuyệt đối không bịa.",
     "Không phá vỡ các hành vi đã được đặc tả trong trích đoạn nếu yêu cầu không nói rõ phải thay đổi chúng.",
+    "Không đề xuất công nghệ, thư viện hoặc luồng xử lý không xuất hiện trong trích đoạn; nếu bắt buộc cần thứ mới, đánh dấu rõ là ĐỀ XUẤT MỚI cần xác nhận.",
 ]
+
+# Quy tắc đối chiếu chéo theo loại yêu cầu (docs/Huong_dan_su_dung_NotebookLM_hieu_qua.md §2).
+_TYPE_RULES = {
+    "feature": [
+        "Đánh giá tác động trước: liệt kê component/endpoint/luồng trong trích đoạn sẽ bị ảnh hưởng bởi tính năng mới, và ràng buộc thiết kế nào trong đặc tả giới hạn cách làm.",
+    ],
+    "bug": [
+        "Xác định hành vi ĐÚNG theo đặc tả trong trích đoạn trước khi sửa; nếu trích đoạn ghi nhận lỗi hoặc edge case tương tự, nêu rõ nguyên nhân và cách xử lý đã có.",
+    ],
+}
 
 _ROLE_RULES = {
     "pm": [
@@ -89,7 +100,8 @@ def render_context_markdown(request: dict, package: dict, role: str) -> str:
         "## Quy tắc bắt buộc cho agent",
         "",
     ]
-    lines += [f"- {rule}" for rule in _COMMON_RULES + _ROLE_RULES[role]]
+    type_rules = _TYPE_RULES.get(request.get("request_type"), [])
+    lines += [f"- {rule}" for rule in _COMMON_RULES + type_rules + _ROLE_RULES[role]]
 
     if not package["has_related_specs"]:
         lines += ["", "## Đặc tả hiện có liên quan", "", f"⚠️ {package['warning']}"]
