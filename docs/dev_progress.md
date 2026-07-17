@@ -122,3 +122,12 @@
 - QUY ƯỚC STATE (ghi trong docstring main.py): routes_* truy cập state qua `main.<attr>` tại thời điểm request — nhờ đó test monkeypatch trên main tác động mọi domain; cross-domain gọi qua alias `main._retrieve` / `main._trigger_auto_ingest`, không import chéo router.
 - Thêm tính năng mới = thêm 1 file `routes_*` + `app.include_router(...)` trong main.py.
 - Kiểm chứng: 98 passed (y hệt baseline trước refactor, 8 fail sẵn có trong test_ingest_sync không đổi); openapi có đúng 26 paths như trước; smoke test HTTP thật cả 4 router + auth 401.
+
+### 2026-07-17 — Tạm tắt module Git trong agent_service
+- Lý do: chưa muốn phát triển tiếp module Git (`/git/status`, `/git/branch`) ở thời điểm hiện tại; giữ code lại để bật lại sau, không xóa.
+- `services/agent_service/main.py`: thêm cờ `GIT_MODULE_ENABLED` (đọc từ env, mặc định `"true"` ở mức code để không phá test hiện có khi chạy `pytest` trực tiếp).
+  - Khi tắt: bỏ qua khởi tạo `git.Repo(PROJECT_PATH)` lúc startup (`repo = None`, log info), và 2 endpoint `/git/status`, `/git/branch` trả `404 Git module is currently disabled` thay vì chạm vào `repo`.
+  - `/health/ready` không đổi hành vi khi cờ bật (test `test_health_ready_reports_dependencies` không sửa và vẫn pass).
+- `docker-compose.yml`: agent_service nhận `GIT_MODULE_ENABLED=${AGENT_SERVICE_GIT_MODULE_ENABLED:-false}` → **mặc định tắt** ở runtime thật (container). Muốn bật lại: set `AGENT_SERVICE_GIT_MODULE_ENABLED=true` trong `.env` rồi `docker compose up -d agent_service`.
+- Kiểm chứng: `docker compose run --rm agent_service pytest -q tests/` → 10 passed; `docker compose up -d agent_service` → log xác nhận `GIT_MODULE_ENABLED=false: bỏ qua khởi tạo Git repo...`.
+- Tài liệu: cập nhật ghi chú trong `docs/Architecture.md` (mục Git & GitPython).

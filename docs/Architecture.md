@@ -15,7 +15,7 @@ LangChain: Một framework mạnh mẽ giúp đơn giản hóa việc xây dựn
 OpenAI / Anthropic APIs: Đây là "bộ não" của agent_service. Dịch vụ này sẽ gọi đến API của các mô hình ngôn ngữ lớn (LLM) như GPT-4 (OpenAI) hoặc Claude (Anthropic) để thực hiện các tác vụ phức tạp như trả lời câu hỏi, phân tích, và sinh mã nguồn.
 
 # 4. Công cụ và Tích hợp (Tooling & Integrations)
-Git & GitPython: Git là hệ thống quản lý phiên bản mã nguồn. agent_service sử dụng thư viện GitPython để có thể tự động thực hiện các thao tác như kiểm tra trạng thái, tạo nhánh mới, và commit thay đổi, giống như một lập trình viên thực thụ.
+Git & GitPython: Git là hệ thống quản lý phiên bản mã nguồn. agent_service sử dụng thư viện GitPython để có thể tự động thực hiện các thao tác như kiểm tra trạng thái, tạo nhánh mới, và commit thay đổi, giống như một lập trình viên thực thụ. **Lưu ý (2026-07-17): module này đang tạm tắt** qua biến môi trường `GIT_MODULE_ENABLED` (mặc định `false` trong `docker-compose.yml`) — xem chi tiết trong `docs/dev_progress.md`.
 Obsidian & Markdown: Obsidian được định vị là kho tri thức trung tâm (Project Wiki), nơi các lập trình viên con người quản lý toàn bộ tài liệu dự án dưới định dạng Markdown. Các agent AI sẽ đọc và học từ chính các file Markdown này.
 
 ## Tóm lại

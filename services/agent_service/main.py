@@ -25,16 +25,22 @@ EXEMPT_PATHS = {"/health", "/health/live", "/health/ready"}
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", 120))
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 DEPENDENCY_CHECK_TIMEOUT = float(os.getenv("DEPENDENCY_CHECK_TIMEOUT", 5.0))
+# Module git đang tạm dừng phát triển; tắt qua env để không mount/khởi tạo repo và ẩn các endpoint /git/*.
+GIT_MODULE_ENABLED = os.getenv("GIT_MODULE_ENABLED", "true").strip().lower() == "true"
 
 # --- Initialize Global Objects ---
-try:
-    repo = git.Repo(PROJECT_PATH)
-except git.InvalidGitRepositoryError:
-    logger.error(f"Git repository not found at '{PROJECT_PATH}'. Please ensure the volume is mounted correctly.")
+if not GIT_MODULE_ENABLED:
+    logger.info("GIT_MODULE_ENABLED=false: bỏ qua khởi tạo Git repo, các endpoint /git/* sẽ trả 404.")
     repo = None
-except Exception as e:
-    logger.error(f"Failed to initialize Git repo on startup: {e}", exc_info=True)
-    repo = None
+else:
+    try:
+        repo = git.Repo(PROJECT_PATH)
+    except git.InvalidGitRepositoryError:
+        logger.error(f"Git repository not found at '{PROJECT_PATH}'. Please ensure the volume is mounted correctly.")
+        repo = None
+    except Exception as e:
+        logger.error(f"Failed to initialize Git repo on startup: {e}", exc_info=True)
+        repo = None
 
 app = FastAPI(title="AI Developer Agent Service")
 
@@ -163,6 +169,8 @@ def get_git_status():
     """
     Gets the status of the Git repository, similar to `git status`.
     """
+    if not GIT_MODULE_ENABLED:
+        raise HTTPException(status_code=404, detail="Git module is currently disabled.")
     if not repo:
         raise HTTPException(status_code=503, detail="Git repository is not available.")
 
@@ -180,6 +188,8 @@ def create_git_branch(branch: BranchName):
     """
     Creates and checks out a new Git branch.
     """
+    if not GIT_MODULE_ENABLED:
+        raise HTTPException(status_code=404, detail="Git module is currently disabled.")
     if not repo:
         raise HTTPException(status_code=503, detail="Git repository is not available.")
 
