@@ -36,6 +36,21 @@ services:
     networks:
       - ai_agent_net
 
+  redis:
+    <<: *hardening
+    image: redis:7-alpine
+    container_name: notebooklm_redis
+    # Chỉ dùng làm distributed lock/throttle cho NotebookLM CLI (xem
+    # notebooklm_lock.py) — dữ liệu ephemeral, không cần persistence,
+    # không cần expose ra ngoài ai_agent_net.
+    # user=999:1000 (uid/gid "redis" có sẵn trong image): chạy thẳng non-root,
+    # bỏ qua bước gosu hạ quyền trong entrypoint — bước đó cần CAP_SETUID/
+    # CAP_SETGID, vốn đã bị x-hardening cap_drop: ALL chặn.
+    user: "999:1000"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - ai_agent_net
+
   ollama:
     <<: *hardening
     image: ollama/ollama:latest
@@ -75,6 +90,11 @@ services:
       - NOTEBOOKLM_AUTH_DIR=/app/project_data/notebooklm_auth
       - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:2017}
       - MONGODB_DB_NAME=${MONGODB_DB_NAME:-knowledge_service}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - NOTEBOOKLM_LOCK_LEASE_S=${NOTEBOOKLM_LOCK_LEASE_S:-600}
+      - NOTEBOOKLM_LOCK_WAIT_TIMEOUT_S=${NOTEBOOKLM_LOCK_WAIT_TIMEOUT_S:-600}
+      - NOTEBOOKLM_THROTTLE_MIN_DELAY_S=${NOTEBOOKLM_THROTTLE_MIN_DELAY_S:-2}
+      - NOTEBOOKLM_THROTTLE_MAX_DELAY_S=${NOTEBOOKLM_THROTTLE_MAX_DELAY_S:-4}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-120}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - KAFKA_ENABLED=${KAFKA_ENABLED:-0}
@@ -122,6 +142,7 @@ services:
     depends_on:
       - qdrant
       - ollama
+      - redis
     networks:
       - ai_agent_net
       - shared_network

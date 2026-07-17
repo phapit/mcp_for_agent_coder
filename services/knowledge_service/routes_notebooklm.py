@@ -20,6 +20,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 import excel_ingest
 import manifest as manifest_store
 import vision
+from notebooklm_lock import NotebookLMLockError, NotebookLMLockManager, NotebookLMLockTimeoutError
 from notebooklm_service import NotebookLMError, NotebookLMRateLimitError, NotebookLMService
 from project_config_store import ProjectConfigError, ProjectConfigStore
 from schemas import (
@@ -54,6 +55,12 @@ def _require_project_config_store() -> ProjectConfigStore:
     if main.project_config_store is None:
         raise HTTPException(status_code=503, detail="MongoDB project config store is not available.")
     return main.project_config_store
+
+
+def _require_lock_manager() -> NotebookLMLockManager:
+    if main.notebooklm_lock_manager is None:
+        raise HTTPException(status_code=503, detail="Redis throttle service (notebooklm_lock_manager) is not available.")
+    return main.notebooklm_lock_manager
 
 
 def _load_notebook_auth_json(auth_name: str) -> str:
@@ -152,17 +159,25 @@ def ingest_spreadsheet(request: IngestSpreadsheetRequest):
     except ProjectConfigError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    lock_manager = _require_lock_manager()
     auth_json = _load_notebook_auth_json(config.notebooklm_auth_name)
     output_dir = _project_output_dir(request.project_name)
     service = NotebookLMService(
         notebook_id=config.notebook_id,
         output_dir=output_dir,
         auth_json=auth_json,
+        lock_manager=lock_manager,
     )
     try:
         result = service.process_spreadsheet(
             request.spreadsheet_id, request.output_name, language=request.language
         )
+    except NotebookLMLockTimeoutError as exc:
+        logger.warning("NotebookLM notebook busy (lock timeout): %s", exc)
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except NotebookLMLockError as exc:
+        logger.error("NotebookLM distributed lock (Redis) unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except NotebookLMRateLimitError as exc:
         logger.warning("NotebookLM rate limit; job can be resumed without creating a duplicate: %s", exc)
         raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -214,12 +229,14 @@ def generate_notebook_report(request: NotebookReportRequest):
     except ProjectConfigError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    lock_manager = _require_lock_manager()
     auth_json = _load_notebook_auth_json(config.notebooklm_auth_name)
     output_dir = _project_output_dir(request.project_name)
     service = NotebookLMService(
         notebook_id=config.notebook_id,
         output_dir=output_dir,
         auth_json=auth_json,
+        lock_manager=lock_manager,
     )
     try:
         result = service.generate_custom_report(
@@ -229,6 +246,12 @@ def generate_notebook_report(request: NotebookReportRequest):
             language=request.language,
             append=request.append,
         )
+    except NotebookLMLockTimeoutError as exc:
+        logger.warning("NotebookLM notebook busy (lock timeout): %s", exc)
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except NotebookLMLockError as exc:
+        logger.error("NotebookLM distributed lock (Redis) unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except NotebookLMRateLimitError as exc:
         logger.warning("NotebookLM rate limit; can be retried without creating a duplicate: %s", exc)
         raise HTTPException(status_code=429, detail=str(exc)) from exc

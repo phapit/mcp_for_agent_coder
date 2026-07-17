@@ -14,4 +14,5 @@ python-dotenv==1.2.2
 pytest==9.1.1
 notebooklm-py==0.7.3
 pymongo==4.17.0
+redis==5.2.1
 confluent-kafka==2.6.1

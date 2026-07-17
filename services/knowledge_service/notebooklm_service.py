@@ -1,9 +1,12 @@
 import json
 import os
 import subprocess
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
+
+from notebooklm_lock import NotebookLMLockManager
 
 
 class NotebookLMError(RuntimeError):
@@ -47,12 +50,23 @@ class NotebookLMService:
         auth_json: str | None = None,
         cli: str | None = None,
         runner: Runner | None = None,
+        lock_manager: NotebookLMLockManager | None = None,
     ) -> None:
         self.notebook_id = notebook_id or os.getenv("NOTEBOOKLM_NOTEBOOK_ID", "")
         self.output_dir = Path(output_dir or os.getenv("NOTEBOOKLM_OUTPUT_DIR", "/app/project_data/docs/imported"))
         self.auth_json = auth_json or os.getenv("NOTEBOOKLM_AUTH_JSON", "")
         self.cli = cli or os.getenv("NOTEBOOKLM_CLI", "notebooklm")
         self.runner = runner or _default_runner
+        # None (mặc định, dùng trong unit test) = bỏ qua throttle, không cần Redis.
+        self.lock_manager = lock_manager
+
+    def _throttle(self):
+        """Giữ lock độc quyền + enforce khoảng nghỉ cho self.notebook_id trong
+        suốt 1 thao tác cấp cao (process_spreadsheet/generate_custom_report),
+        không phải cho từng lệnh CLI con."""
+        if self.lock_manager is None:
+            return nullcontext()
+        return self.lock_manager.throttle(self.notebook_id)
 
     def _run(self, args: Sequence[str], *, json_output: bool = False) -> dict:
         command = [self.cli, *args]
@@ -124,49 +138,50 @@ class NotebookLMService:
         if not spreadsheet_id.strip():
             raise NotebookLMError("spreadsheet_id must not be empty.")
 
-        source_id = self._find_source(spreadsheet_id)
-        if not source_id:
-            source = self._run(
-                [
-                    "source",
-                    "add-drive",
-                    spreadsheet_id,
-                    output_name,
-                    "--mime-type",
-                    "google-sheets",
-                    "-n",
-                    self.notebook_id,
-                ],
-                json_output=True,
-            )
-            source_id = source.get("source", {}).get("id")
-        if source_id:
-            self._run(["source", "wait", source_id, "--timeout", "120", "-n", self.notebook_id])
+        with self._throttle():
+            source_id = self._find_source(spreadsheet_id)
+            if not source_id:
+                source = self._run(
+                    [
+                        "source",
+                        "add-drive",
+                        spreadsheet_id,
+                        output_name,
+                        "--mime-type",
+                        "google-sheets",
+                        "-n",
+                        self.notebook_id,
+                    ],
+                    json_output=True,
+                )
+                source_id = source.get("source", {}).get("id")
+            if source_id:
+                self._run(["source", "wait", source_id, "--timeout", "120", "-n", self.notebook_id])
 
-        artifact_id = self._find_report(spreadsheet_id, output_name)
-        report_reused = bool(artifact_id)
-        if not artifact_id:
-            generate_args = ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id, "--no-wait"]
-            if language:
-                # --language chỉ tác động lúc generate; không đổi được ngôn ngữ của report đã tồn tại.
-                generate_args += ["--language", language]
-            artifact = self._run(generate_args, json_output=True)
-            artifact_id = (
-                artifact.get("artifact", {}).get("id")
-                or artifact.get("artifact_id")
-                or artifact.get("task_id")
-                or artifact.get("task", {}).get("id")
-            )
-        if not artifact_id:
-            raise NotebookLMError("NotebookLM report response did not include an artifact id.")
+            artifact_id = self._find_report(spreadsheet_id, output_name)
+            report_reused = bool(artifact_id)
+            if not artifact_id:
+                generate_args = ["generate", "report", "--format", "briefing-doc", "-n", self.notebook_id, "--no-wait"]
+                if language:
+                    # --language chỉ tác động lúc generate; không đổi được ngôn ngữ của report đã tồn tại.
+                    generate_args += ["--language", language]
+                artifact = self._run(generate_args, json_output=True)
+                artifact_id = (
+                    artifact.get("artifact", {}).get("id")
+                    or artifact.get("artifact_id")
+                    or artifact.get("task_id")
+                    or artifact.get("task", {}).get("id")
+                )
+            if not artifact_id:
+                raise NotebookLMError("NotebookLM report response did not include an artifact id.")
 
-        self._run(["artifact", "wait", artifact_id, "--timeout", "120", "-n", self.notebook_id])
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = self.output_dir / output_name
-        self._run(
-            ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
-        )
-        return NotebookLMResult(str(output_path), source_id, artifact_id, report_reused=report_reused)
+            self._run(["artifact", "wait", artifact_id, "--timeout", "120", "-n", self.notebook_id])
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = self.output_dir / output_name
+            self._run(
+                ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
+            )
+            return NotebookLMResult(str(output_path), source_id, artifact_id, report_reused=report_reused)
 
     def generate_custom_report(
         self,
@@ -186,30 +201,31 @@ class NotebookLMService:
         if not prompt.strip():
             raise NotebookLMError("prompt must not be empty.")
 
-        grounded_prompt = f"{GROUNDING_PREAMBLE}\n\nYêu cầu: {prompt.strip()}"
-        generate_args = [
-            "generate", "report", grounded_prompt, "--format", report_format, "-n", self.notebook_id, "--no-wait",
-        ]
-        if append and report_format != "custom":
-            # --append không có tác dụng với --format custom (theo tài liệu NotebookLM CLI).
-            generate_args += ["--append", append]
-        if language:
-            generate_args += ["--language", language]
+        with self._throttle():
+            grounded_prompt = f"{GROUNDING_PREAMBLE}\n\nYêu cầu: {prompt.strip()}"
+            generate_args = [
+                "generate", "report", grounded_prompt, "--format", report_format, "-n", self.notebook_id, "--no-wait",
+            ]
+            if append and report_format != "custom":
+                # --append không có tác dụng với --format custom (theo tài liệu NotebookLM CLI).
+                generate_args += ["--append", append]
+            if language:
+                generate_args += ["--language", language]
 
-        artifact = self._run(generate_args, json_output=True)
-        artifact_id = (
-            artifact.get("artifact", {}).get("id")
-            or artifact.get("artifact_id")
-            or artifact.get("task_id")
-            or artifact.get("task", {}).get("id")
-        )
-        if not artifact_id:
-            raise NotebookLMError("NotebookLM report response did not include an artifact id.")
+            artifact = self._run(generate_args, json_output=True)
+            artifact_id = (
+                artifact.get("artifact", {}).get("id")
+                or artifact.get("artifact_id")
+                or artifact.get("task_id")
+                or artifact.get("task", {}).get("id")
+            )
+            if not artifact_id:
+                raise NotebookLMError("NotebookLM report response did not include an artifact id.")
 
-        self._run(["artifact", "wait", artifact_id, "--timeout", "120", "-n", self.notebook_id])
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = self.output_dir / output_name
-        self._run(
-            ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
-        )
-        return NotebookLMResult(str(output_path), None, artifact_id)
+            self._run(["artifact", "wait", artifact_id, "--timeout", "120", "-n", self.notebook_id])
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = self.output_dir / output_name
+            self._run(
+                ["download", "report", str(output_path), "-a", artifact_id, "-n", self.notebook_id]
+            )
+            return NotebookLMResult(str(output_path), None, artifact_id)

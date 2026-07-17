@@ -31,6 +31,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from qdrant_client import QdrantClient
 import openai
 from pymongo import MongoClient
+from redis import Redis
 
 import ingest_worker as ingest_worker_module
 import kafka_bus
@@ -40,6 +41,7 @@ from client_request_store import ClientRequestStore
 from document_registry import DocumentRegistry
 from ingest_history import IngestHistory
 from job_store import MongoJobStore
+from notebooklm_lock import NotebookLMLockManager
 from project_config_store import ProjectConfigStore
 from session_store import SessionStore
 from schemas import (  # re-export: test và code cũ tham chiếu qua main.<Model>
@@ -83,6 +85,11 @@ MONGODB_SESSIONS_COLLECTION = os.getenv("MONGODB_SESSIONS_COLLECTION", "chat_ses
 MONGODB_INGEST_HISTORY_COLLECTION = os.getenv("MONGODB_INGEST_HISTORY_COLLECTION", "ingest_runs")
 MONGODB_JOBS_COLLECTION = os.getenv("MONGODB_JOBS_COLLECTION", "ingest_jobs")
 MONGODB_CLIENT_REQUESTS_COLLECTION = os.getenv("MONGODB_CLIENT_REQUESTS_COLLECTION", "client_requests")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+NOTEBOOKLM_LOCK_LEASE_S = float(os.getenv("NOTEBOOKLM_LOCK_LEASE_S", 600))
+NOTEBOOKLM_LOCK_WAIT_TIMEOUT_S = float(os.getenv("NOTEBOOKLM_LOCK_WAIT_TIMEOUT_S", 600))
+NOTEBOOKLM_THROTTLE_MIN_DELAY_S = float(os.getenv("NOTEBOOKLM_THROTTLE_MIN_DELAY_S", 2))
+NOTEBOOKLM_THROTTLE_MAX_DELAY_S = float(os.getenv("NOTEBOOKLM_THROTTLE_MAX_DELAY_S", 4))
 MAX_INGEST_ATTEMPTS = int(os.getenv("MAX_INGEST_ATTEMPTS", 3))
 AUTO_INGEST_AFTER_EXPORT = os.getenv("AUTO_INGEST_AFTER_EXPORT", "1") == "1"
 SESSION_CONTEXT_TURNS = int(os.getenv("SESSION_CONTEXT_TURNS", 5))
@@ -117,6 +124,18 @@ try:
     job_store = MongoJobStore(mongo_client[MONGODB_DB_NAME][MONGODB_JOBS_COLLECTION])
     client_request_store = ClientRequestStore(mongo_client[MONGODB_DB_NAME][MONGODB_CLIENT_REQUESTS_COLLECTION])
     reranker = retrieval.Reranker() if retrieval.RERANK_ENABLED else None
+    redis_client = Redis.from_url(
+        REDIS_URL,
+        socket_connect_timeout=DEPENDENCY_CHECK_TIMEOUT,
+        socket_timeout=DEPENDENCY_CHECK_TIMEOUT,
+    )
+    notebooklm_lock_manager = NotebookLMLockManager(
+        redis_client,
+        lease_seconds=NOTEBOOKLM_LOCK_LEASE_S,
+        wait_timeout_seconds=NOTEBOOKLM_LOCK_WAIT_TIMEOUT_S,
+        min_delay_seconds=NOTEBOOKLM_THROTTLE_MIN_DELAY_S,
+        max_delay_seconds=NOTEBOOKLM_THROTTLE_MAX_DELAY_S,
+    )
 except Exception as e:
     logger.error(f"Failed to initialize models or clients on startup: {e}", exc_info=True)
     embeddings = None
@@ -131,6 +150,8 @@ except Exception as e:
     job_store = None
     client_request_store = None
     reranker = None
+    redis_client = None
+    notebooklm_lock_manager = None
 
 kafka_bus_instance = kafka_bus.KafkaBus() if kafka_bus.KAFKA_ENABLED else None
 ingest_worker: ingest_worker_module.IngestWorker | None = None
@@ -291,6 +312,15 @@ def health_ready():
             checks["ollama"] = f"unreachable: {e}"
 
     checks["openai"] = "configured" if openai_client else "not_configured"
+
+    if redis_client is None:
+        checks["redis"] = "not_initialized"
+    else:
+        try:
+            redis_client.ping()
+            checks["redis"] = "ok"
+        except Exception as e:
+            checks["redis"] = f"error: {e}"
 
     if kafka_bus.KAFKA_ENABLED:
         checks["kafka"] = (
